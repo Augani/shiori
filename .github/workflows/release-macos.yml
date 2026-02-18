@@ -71,6 +71,9 @@ jobs:
       - name: Free disk space
         run: |
           rm -rf binaries shiori-universal
+          rm -rf ~/Library/Caches/Homebrew
+          rm -rf /Users/runner/Library/Caches
+          df -h .
 
       - name: Import signing certificate
         if: env.APPLE_CERTIFICATE_P12 != ''
