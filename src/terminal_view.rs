@@ -160,7 +160,7 @@ impl TerminalView {
 
         self.polling_started = true;
         cx.spawn_in(window, async move |this, cx| loop {
-            Timer::after(Duration::from_millis(8)).await;
+            Timer::after(Duration::from_millis(16)).await;
 
             let should_continue = this
                 .update(cx, |view, cx| {
@@ -170,8 +170,10 @@ impl TerminalView {
                         return false;
                     }
                     view.flush_pending_resize();
-                    view.process_output();
-                    cx.notify();
+                    let had_output = view.process_output();
+                    if had_output {
+                        cx.notify();
+                    }
                     true
                 })
                 .unwrap_or(false);
@@ -194,13 +196,15 @@ impl TerminalView {
         self.state.set_mouse_mode(1000, false);
     }
 
-    pub fn process_output(&mut self) {
+    pub fn process_output(&mut self) -> bool {
         if let Some(pty) = &self.pty {
             let output = pty.drain_output();
             if !output.is_empty() {
                 self.process_bytes(&output);
+                return true;
             }
         }
+        false
     }
 
     fn process_bytes(&mut self, bytes: &[u8]) {
@@ -1475,7 +1479,7 @@ impl Render for TerminalView {
         if self.is_running() && !self.polling_started {
             self.polling_started = true;
             cx.spawn_in(window, async move |this, cx| loop {
-                Timer::after(Duration::from_millis(8)).await;
+                Timer::after(Duration::from_millis(16)).await;
 
                 let should_continue = this
                     .update(cx, |view, cx| {
@@ -1485,8 +1489,10 @@ impl Render for TerminalView {
                             return false;
                         }
                         view.flush_pending_resize();
-                        view.process_output();
-                        cx.notify();
+                        let had_output = view.process_output();
+                        if had_output {
+                            cx.notify();
+                        }
                         true
                     })
                     .unwrap_or(false);
