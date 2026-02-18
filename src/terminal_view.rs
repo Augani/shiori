@@ -760,7 +760,7 @@ impl TerminalView {
     fn hyperlink_at(&self, line_idx: usize, col: usize) -> Option<String> {
         let line = self.state.line(line_idx)?;
         let cell = line.get(col)?;
-        cell.hyperlink.clone()
+        cell.hyperlink.as_ref().map(|s| s.as_str().to_string())
     }
 
     fn word_bounds_at(&self, line_idx: usize, col: usize) -> (usize, usize) {

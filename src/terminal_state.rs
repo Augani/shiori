@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
+pub type HyperlinkRef = Arc<String>;
+
 pub const DEFAULT_COLS: usize = 80;
 pub const DEFAULT_ROWS: usize = 24;
 pub const DEFAULT_SCROLLBACK: usize = 10000;
@@ -115,7 +117,7 @@ pub struct TerminalCell {
     pub char: char,
     pub style: CellStyle,
     pub width: u8,
-    pub hyperlink: Option<String>,
+    pub hyperlink: Option<HyperlinkRef>,
     pub image_cell: ImageCellKind,
 }
 
@@ -147,7 +149,7 @@ impl TerminalCell {
         }
     }
 
-    pub fn with_hyperlink(mut self, url: Option<String>) -> Self {
+    pub fn with_hyperlink(mut self, url: Option<HyperlinkRef>) -> Self {
         self.hyperlink = url;
         self
     }
@@ -373,7 +375,7 @@ pub struct TerminalState {
     g0_charset: Charset,
     g1_charset: Charset,
     active_charset: u8,
-    current_hyperlink: Option<String>,
+    current_hyperlink: Option<HyperlinkRef>,
 
     image_placements: Vec<ImagePlacement>,
     next_image_id: u32,
@@ -609,7 +611,7 @@ impl TerminalState {
     }
 
     pub fn set_hyperlink(&mut self, url: Option<String>) {
-        self.current_hyperlink = url;
+        self.current_hyperlink = url.map(|s| Arc::new(s));
     }
 
     pub fn sync_update_active(&self) -> bool {
