@@ -51,9 +51,17 @@ pub struct TerminalView {
     blink_visible: bool,
     last_text_blink_time: Instant,
     has_blinking_cells: bool,
+    pub font_size: f32,
+    pub line_height: f32,
 }
 
 impl TerminalView {
+    pub fn set_font_size(&mut self, size: f32) {
+        self.font_size = size;
+        self.line_height = (size * 1.385).round();
+        self.last_resize = None;
+    }
+
     pub fn title(&self) -> String {
         self.state
             .title()
@@ -101,6 +109,8 @@ impl TerminalView {
             blink_visible: true,
             last_text_blink_time: Instant::now(),
             has_blinking_cells: false,
+            font_size: 13.0,
+            line_height: LINE_HEIGHT,
         }
     }
 
@@ -390,7 +400,7 @@ impl TerminalView {
 
     fn calculate_rows(&self) -> usize {
         let available = self.viewport_height - TERMINAL_PADDING * 2.0;
-        ((available / LINE_HEIGHT).floor() as usize).max(5)
+        ((available / self.line_height).floor() as usize).max(5)
     }
 
     pub fn update_viewport(&mut self, width: f32, height: f32) {
@@ -668,7 +678,7 @@ impl TerminalView {
     ) {
         let delta_y = match event.delta {
             gpui::ScrollDelta::Lines(lines) => lines.y,
-            gpui::ScrollDelta::Pixels(pixels) => f32::from(pixels.y) / LINE_HEIGHT,
+            gpui::ScrollDelta::Pixels(pixels) => f32::from(pixels.y) / self.line_height,
         };
 
         if self.state.mouse_tracking() && !event.modifiers.shift {
@@ -916,7 +926,7 @@ impl TerminalView {
         let y = f32::from(position.y) - f32::from(self.content_origin.y) - TERMINAL_PADDING;
 
         let col = (x / self.char_width()).max(0.0) as usize;
-        let row = (y / LINE_HEIGHT).max(0.0) as usize;
+        let row = (y / self.line_height).max(0.0) as usize;
 
         let total = self.state.total_lines();
         let rows = self.state.rows();
@@ -1226,11 +1236,11 @@ impl TerminalView {
         }
 
         div()
-            .h(px(LINE_HEIGHT))
+            .h(px(self.line_height))
             .w_full()
             .flex()
             .font_family("JetBrains Mono")
-            .text_size(px(13.0))
+            .text_size(px(self.font_size))
             .children(spans)
     }
 
@@ -1296,6 +1306,7 @@ impl TerminalView {
             image_data.source_height,
             self.state.cols(),
             self.char_width(),
+            self.line_height,
         );
 
         self.state
@@ -1310,11 +1321,11 @@ impl TerminalView {
             .into_iter()
             .map(|p| {
                 let row_offset = p.anchor_line as isize - viewport_start as isize;
-                let top = row_offset as f32 * LINE_HEIGHT;
+                let top = row_offset as f32 * self.line_height;
                 let cw = self.char_width();
                 let left = p.anchor_col as f32 * cw;
                 let w = p.image.display_cols as f32 * cw;
-                let h = p.image.display_rows as f32 * LINE_HEIGHT;
+                let h = p.image.display_rows as f32 * self.line_height;
 
                 div()
                     .absolute()
@@ -1356,7 +1367,7 @@ impl TerminalView {
         let x = f32::from(position.x) - f32::from(self.content_origin.x) - TERMINAL_PADDING;
         let y = f32::from(position.y) - f32::from(self.content_origin.y) - TERMINAL_PADDING;
         let col = (x / self.char_width()).max(0.0) as usize;
-        let row = (y / LINE_HEIGHT).max(0.0) as usize;
+        let row = (y / self.line_height).max(0.0) as usize;
         (row, col)
     }
 
@@ -1395,6 +1406,7 @@ fn resolve_image_dimensions(
     source_height: Option<u32>,
     terminal_cols: usize,
     cw: f32,
+    lh: f32,
 ) -> (usize, usize) {
     let cols = match width {
         ImageDimension::Cells(c) => *c,
@@ -1412,7 +1424,7 @@ fn resolve_image_dimensions(
 
     let rows = match height {
         ImageDimension::Cells(r) => *r,
-        ImageDimension::Pixels(p) => ((*p as f32) / LINE_HEIGHT).ceil() as usize,
+        ImageDimension::Pixels(p) => ((*p as f32) / lh).ceil() as usize,
         ImageDimension::Percent(pct) => ((24 * (*pct as usize)) / 100).max(1),
         ImageDimension::Auto => {
             if let (Some(sw), Some(sh)) = (source_width, source_height) {
@@ -1420,9 +1432,9 @@ fn resolve_image_dimensions(
                     let pixel_width = cols as f32 * cw;
                     let scale = pixel_width / sw as f32;
                     let pixel_height = sh as f32 * scale;
-                    (pixel_height / LINE_HEIGHT).ceil() as usize
+                    (pixel_height / lh).ceil() as usize
                 } else if sh > 0 {
-                    (sh as f32 / LINE_HEIGHT).ceil() as usize
+                    (sh as f32 / lh).ceil() as usize
                 } else {
                     10
                 }
@@ -1673,7 +1685,7 @@ impl Render for TerminalView {
                                             self.render_line(idx, &line, is_cursor_line)
                                                 .into_any_element()
                                         } else {
-                                            div().h(px(LINE_HEIGHT)).into_any_element()
+                                            div().h(px(self.line_height)).into_any_element()
                                         }
                                     })
                                     .collect::<Vec<_>>(),

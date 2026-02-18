@@ -17,6 +17,7 @@ use adabraka_ui::components::editor::{
     DiagnosticSeverity as EditorDiagSeverity, Editor, EditorDiagnostic, EditorState,
     Enter as EditorEnter, Language, MoveDown, MoveUp, Tab as EditorTab,
 };
+use adabraka_ui::components::confirm_dialog::Dialog;
 use adabraka_ui::components::icon::Icon;
 use adabraka_ui::components::input::{Input, InputState};
 use adabraka_ui::components::resizable::{
@@ -72,6 +73,9 @@ actions!(
         FoldAll,
         UnfoldAll,
         CloseTerminal,
+        ZoomIn,
+        ZoomOut,
+        ZoomReset,
     ]
 );
 
@@ -110,6 +114,9 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("cmd-k cmd-0", FoldAll, Some("ShioriApp")),
         KeyBinding::new("cmd-k cmd-j", UnfoldAll, Some("ShioriApp")),
         KeyBinding::new("f12", GotoDefinition, Some("ShioriApp")),
+        KeyBinding::new("cmd-=", ZoomIn, Some("ShioriApp")),
+        KeyBinding::new("cmd--", ZoomOut, Some("ShioriApp")),
+        KeyBinding::new("cmd-0", ZoomReset, Some("ShioriApp")),
         KeyBinding::new("ctrl-.", TriggerCompletion, Some("ShioriApp")),
         KeyBinding::new("up", CompletionUp, Some("ShioriApp")),
         KeyBinding::new("down", CompletionDown, Some("ShioriApp")),
@@ -174,6 +181,8 @@ pub struct AppState {
     hover_task: Option<Task<()>>,
     lsp_completion_task: Option<Task<()>>,
     lsp_change_task: Option<Task<()>>,
+    zoom_level: f32,
+    confirm_close_terminal: Option<usize>,
 }
 
 struct TabMeta {
@@ -564,6 +573,8 @@ impl AppState {
             hover_task: None,
             lsp_completion_task: None,
             lsp_change_task: None,
+            zoom_level: 1.0,
+            confirm_close_terminal: None,
         }
     }
 
@@ -657,6 +668,12 @@ impl AppState {
         self.active_tab = idx;
         self.setup_overlay_check(&buffer, cx);
         self.lsp_notify_did_open(&buffer, cx);
+        if (self.zoom_level - 1.0).abs() > f32::EPSILON {
+            let font_size = 14.0 * self.zoom_level;
+            buffer.update(cx, |state, cx| {
+                state.set_font_size(font_size, cx);
+            });
+        }
     }
 
     fn setup_overlay_check(&self, buffer: &Entity<EditorState>, cx: &mut Context<Self>) {
@@ -1803,8 +1820,12 @@ impl AppState {
 
     fn new_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let working_dir = self.current_working_directory();
+        let zoom = self.zoom_level;
         let terminal = cx.new(|cx| TerminalView::new(cx).with_working_directory(working_dir));
         terminal.update(cx, |t, cx| {
+            if (zoom - 1.0).abs() > f32::EPSILON {
+                t.set_font_size(13.0 * zoom);
+            }
             let _ = t.start_with_polling(window, cx);
         });
         self.terminals.push(terminal);
@@ -1815,6 +1836,19 @@ impl AppState {
     }
 
     fn close_terminal_at(&mut self, idx: usize, cx: &mut Context<Self>) {
+        if idx >= self.terminals.len() {
+            return;
+        }
+        let is_running = self.terminals[idx].read(cx).is_running();
+        if is_running {
+            self.confirm_close_terminal = Some(idx);
+            cx.notify();
+            return;
+        }
+        self.force_close_terminal_at(idx, cx);
+    }
+
+    fn force_close_terminal_at(&mut self, idx: usize, cx: &mut Context<Self>) {
         if idx >= self.terminals.len() {
             return;
         }
@@ -1829,6 +1863,35 @@ impl AppState {
         cx.notify();
     }
 
+    fn zoom_in(&mut self, cx: &mut Context<Self>) {
+        self.set_zoom((self.zoom_level + 0.1).min(3.0), cx);
+    }
+
+    fn zoom_out(&mut self, cx: &mut Context<Self>) {
+        self.set_zoom((self.zoom_level - 0.1).max(0.5), cx);
+    }
+
+    fn zoom_reset(&mut self, cx: &mut Context<Self>) {
+        self.set_zoom(1.0, cx);
+    }
+
+    fn set_zoom(&mut self, level: f32, cx: &mut Context<Self>) {
+        self.zoom_level = level;
+        let editor_font_size = 14.0 * self.zoom_level;
+        for buffer in &self.buffers {
+            buffer.update(cx, |state, cx| {
+                state.set_font_size(editor_font_size, cx);
+            });
+        }
+        let terminal_font_size = 13.0 * self.zoom_level;
+        for terminal in &self.terminals {
+            terminal.update(cx, |t, _| {
+                t.set_font_size(terminal_font_size);
+            });
+        }
+        cx.notify();
+    }
+
     fn toggle_terminal_fullscreen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.terminals.is_empty() {
             self.new_terminal(window, cx);
@@ -1837,145 +1900,6 @@ impl AppState {
         cx.notify();
     }
 
-    fn render_terminal_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let ide = use_ide_theme();
-        let chrome = &ide.chrome;
-        let border = chrome.header_border;
-        let muted_fg = chrome.text_secondary;
-        let active_fg = chrome.bright;
-        let editor_bg = chrome.editor_bg;
-
-        let any_running = self.terminals.iter().any(|t| t.read(cx).is_running());
-
-        div()
-            .id("terminal-tab-bar")
-            .w_full()
-            .h(px(36.0))
-            .bg(chrome.panel_bg)
-            .border_b_1()
-            .border_color(border)
-            .flex()
-            .items_center()
-            .child(
-                div()
-                    .h_full()
-                    .flex()
-                    .flex_shrink_0()
-                    .items_center()
-                    .px(px(12.0))
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(muted_fg)
-                            .child("TERMINAL"),
-                    ),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .overflow_x_hidden()
-                    .children(self.terminals.iter().enumerate().map(|(idx, term)| {
-                        let is_active = idx == self.active_terminal;
-                        let title = term.read(cx).title();
-
-                        div()
-                            .id(ElementId::Name(format!("term-tab-{}", idx).into()))
-                            .group("term-tab")
-                            .h_full()
-                            .flex()
-                            .flex_shrink_0()
-                            .items_center()
-                            .gap(px(6.0))
-                            .px(px(12.0))
-                            .cursor_pointer()
-                            .text_size(px(13.0))
-                            .border_r_1()
-                            .border_color(hsla(0.0, 0.0, 1.0, 0.05))
-                            .when(is_active, |el| el.bg(editor_bg).text_color(active_fg))
-                            .when(!is_active, |el| {
-                                el.text_color(muted_fg)
-                                    .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.05)))
-                            })
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.active_terminal = idx;
-                                cx.notify();
-                            }))
-                            .child(title)
-                            .child(
-                                div()
-                                    .id(ElementId::Name(format!("term-tab-close-{}", idx).into()))
-                                    .w(px(18.0))
-                                    .h(px(18.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(4.0))
-                                    .opacity(0.0)
-                                    .group_hover("term-tab", |s| s.opacity(1.0))
-                                    .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.15)))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.close_terminal_at(idx, cx);
-                                    }))
-                                    .child(Icon::new("x").size(px(12.0)).color(muted_fg)),
-                            )
-                    }))
-                    .child(
-                        div()
-                            .id("new-terminal-btn")
-                            .h_full()
-                            .flex()
-                            .flex_shrink_0()
-                            .items_center()
-                            .px(px(6.0))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.05)))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.new_terminal(window, cx);
-                            }))
-                            .child(Icon::new("plus").size(px(14.0)).color(muted_fg)),
-                    ),
-            )
-            .child(
-                div()
-                    .id("terminal-fullscreen-btn")
-                    .flex_shrink_0()
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .px(px(8.0))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.05)))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.toggle_terminal_fullscreen(window, cx);
-                    }))
-                    .child(
-                        Icon::new(if self.terminal_fullscreen {
-                            "minimize-2"
-                        } else {
-                            "maximize-2"
-                        })
-                        .size(px(14.0))
-                        .color(muted_fg),
-                    ),
-            )
-            .child(
-                div().flex_shrink_0().px(px(10.0)).child(
-                    div()
-                        .w(px(8.0))
-                        .h(px(8.0))
-                        .rounded_full()
-                        .bg(if any_running {
-                            gpui::rgb(0x4ade80)
-                        } else {
-                            gpui::rgb(0x8b7b6b)
-                        }),
-                ),
-            )
-    }
 
     fn current_working_directory(&self) -> PathBuf {
         if let Some(meta) = self.tab_meta.get(self.active_tab) {
@@ -3008,25 +2932,13 @@ impl AppState {
                                     .rounded(px(4.0))
                                     .cursor_pointer()
                                     .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.05)))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.git_state.update(cx, |gs, cx| {
+                                            gs.refresh(cx);
+                                        });
+                                    }))
                                     .child(
                                         Icon::new("refresh-cw")
-                                            .size(px(14.0))
-                                            .color(chrome.text_secondary),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .id("git-more-btn")
-                                    .w(px(22.0))
-                                    .h(px(22.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(4.0))
-                                    .cursor_pointer()
-                                    .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.05)))
-                                    .child(
-                                        Icon::new("ellipsis")
                                             .size(px(14.0))
                                             .color(chrome.text_secondary),
                                     ),
@@ -3116,8 +3028,8 @@ impl AppState {
                             .flex()
                             .items_center()
                             .justify_between()
-                            .pl(px(12.0))
-                            .pr(px(14.0))
+                            .mx(px(8.0))
+                            .px(px(8.0))
                             .child(
                                 div()
                                     .flex()
@@ -3149,8 +3061,9 @@ impl AppState {
                             .child(
                                 div()
                                     .id("unstage-all-btn")
-                                    .w(px(22.0))
-                                    .h(px(22.0))
+                                    .flex_shrink_0()
+                                    .w(px(20.0))
+                                    .h(px(20.0))
                                     .flex()
                                     .items_center()
                                     .justify_center()
@@ -3284,8 +3197,8 @@ impl AppState {
                             .flex()
                             .items_center()
                             .justify_between()
-                            .pl(px(12.0))
-                            .pr(px(14.0))
+                            .mx(px(8.0))
+                            .px(px(8.0))
                             .child(
                                 div()
                                     .flex()
@@ -3317,8 +3230,9 @@ impl AppState {
                             .child(
                                 div()
                                     .id("stage-all-btn")
-                                    .w(px(22.0))
-                                    .h(px(22.0))
+                                    .flex_shrink_0()
+                                    .w(px(20.0))
+                                    .h(px(20.0))
                                     .flex()
                                     .items_center()
                                     .justify_center()
@@ -3869,6 +3783,23 @@ impl AppState {
                                                             .child(status_text),
                                                     ),
                                             ),
+                                    )
+                                    .child(
+                                        div()
+                                            .id(ElementId::Name(format!("term-close-{}", idx).into()))
+                                            .w(px(22.0))
+                                            .h(px(22.0))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded(px(4.0))
+                                            .cursor_pointer()
+                                            .text_color(chrome.dim)
+                                            .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.1)).text_color(chrome.bright))
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                this.close_terminal_at(idx, cx);
+                                            }))
+                                            .child(Icon::new("x").size(px(14.0)).color(chrome.dim)),
                                     )
                             })),
                     )
@@ -4619,6 +4550,36 @@ impl AppState {
                 }),
         );
 
+        let a = app.clone();
+        commands.push(
+            Command::new("zoom-in", "Zoom In")
+                .shortcut("⌘+")
+                .category("View")
+                .on_select(move |_, cx| {
+                    a.update(cx, |this, cx| this.zoom_in(cx));
+                }),
+        );
+
+        let a = app.clone();
+        commands.push(
+            Command::new("zoom-out", "Zoom Out")
+                .shortcut("⌘−")
+                .category("View")
+                .on_select(move |_, cx| {
+                    a.update(cx, |this, cx| this.zoom_out(cx));
+                }),
+        );
+
+        let a = app.clone();
+        commands.push(
+            Command::new("zoom-reset", "Reset Zoom")
+                .shortcut("⌘0")
+                .category("View")
+                .on_select(move |_, cx| {
+                    a.update(cx, |this, cx| this.zoom_reset(cx));
+                }),
+        );
+
         commands
     }
 
@@ -4753,7 +4714,7 @@ impl Render for AppState {
         } else if is_git_mode {
             div()
                 .size_full()
-                .child(GitView::new(self.git_state.clone(), self.review_state.clone()))
+                .child(GitView::new(self.git_state.clone(), self.review_state.clone(), self.zoom_level))
                 .into_any_element()
         } else if is_terminal_mode {
             let active_terminal = self.terminals.get(self.active_terminal).cloned();
@@ -4870,13 +4831,11 @@ impl Render for AppState {
                 );
 
             if self.terminal_fullscreen || is_terminal_mode {
-                let terminal_tab_bar = self.render_terminal_tab_bar(cx);
                 let active_terminal = self.terminals.get(self.active_terminal).cloned();
                 div()
                     .size_full()
                     .flex()
                     .flex_col()
-                    .child(terminal_tab_bar)
                     .child(div().flex_1().overflow_hidden().children(active_terminal))
                     .into_any_element()
             } else {
@@ -4943,6 +4902,15 @@ impl Render for AppState {
                 if !this.terminals.is_empty() {
                     this.close_terminal_at(this.active_terminal, cx);
                 }
+            }))
+            .on_action(cx.listener(|this, _: &ZoomIn, _, cx| {
+                this.zoom_in(cx);
+            }))
+            .on_action(cx.listener(|this, _: &ZoomOut, _, cx| {
+                this.zoom_out(cx);
+            }))
+            .on_action(cx.listener(|this, _: &ZoomReset, _, cx| {
+                this.zoom_reset(cx);
             }))
             .on_action(cx.listener(|this, _: &OpenFile, _, cx| {
                 this.open_file_dialog(cx);
@@ -5265,6 +5233,94 @@ impl Render for AppState {
                             ),
                     )
                     .with_priority(1),
+                )
+            })
+            .when_some(self.confirm_close_terminal, |el, _idx| {
+                let ide = use_ide_theme();
+                let chrome = &ide.chrome;
+                let app = cx.entity().clone();
+                let app2 = cx.entity().clone();
+                let app3 = cx.entity().clone();
+                el.child(
+                    deferred(
+                        Dialog::new()
+                            .width(px(400.0))
+                            .bg(chrome.panel_bg)
+                            .text_color(chrome.bright)
+                            .header(
+                                div()
+                                    .p(px(16.0))
+                                    .pb(px(8.0))
+                                    .text_size(px(15.0))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(chrome.bright)
+                                    .child("Close Terminal?"),
+                            )
+                            .content(
+                                div()
+                                    .px(px(16.0))
+                                    .pb(px(16.0))
+                                    .text_size(px(13.0))
+                                    .text_color(chrome.text_secondary)
+                                    .child("This terminal has a running process. Closing it will terminate the process."),
+                            )
+                            .footer(
+                                div()
+                                    .flex()
+                                    .justify_end()
+                                    .gap(px(8.0))
+                                    .p(px(16.0))
+                                    .pt(px(0.0))
+                                    .child(
+                                        div()
+                                            .id("cancel-close-term")
+                                            .px(px(14.0))
+                                            .py(px(6.0))
+                                            .rounded(px(6.0))
+                                            .text_size(px(13.0))
+                                            .cursor_pointer()
+                                            .text_color(chrome.text_secondary)
+                                            .border_1()
+                                            .border_color(chrome.header_border)
+                                            .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.05)))
+                                            .on_click(move |_, _, cx| {
+                                                app2.update(cx, |this, cx| {
+                                                    this.confirm_close_terminal = None;
+                                                    cx.notify();
+                                                });
+                                            })
+                                            .child("Cancel"),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("confirm-close-term")
+                                            .px(px(14.0))
+                                            .py(px(6.0))
+                                            .rounded(px(6.0))
+                                            .text_size(px(13.0))
+                                            .cursor_pointer()
+                                            .bg(hsla(0.0, 0.7, 0.5, 1.0))
+                                            .text_color(gpui::white())
+                                            .hover(|s| s.bg(hsla(0.0, 0.7, 0.45, 1.0)))
+                                            .on_click(move |_, _, cx| {
+                                                app3.update(cx, |this, cx| {
+                                                    if let Some(i) = this.confirm_close_terminal.take() {
+                                                        this.force_close_terminal_at(i, cx);
+                                                    }
+                                                    cx.notify();
+                                                });
+                                            })
+                                            .child("Close Terminal"),
+                                    ),
+                            )
+                            .on_backdrop_click(move |_, cx| {
+                                app.update(cx, |this, cx| {
+                                    this.confirm_close_terminal = None;
+                                    cx.notify();
+                                });
+                            }),
+                    )
+                    .with_priority(2),
                 )
             })
     }

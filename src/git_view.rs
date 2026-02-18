@@ -260,10 +260,31 @@ fn build_text_runs(
     runs
 }
 
-const LINE_HEIGHT: f32 = 20.0;
-const GUTTER_WIDTH: f32 = 44.0;
+const BASE_LINE_HEIGHT: f32 = 20.0;
+const BASE_GUTTER_WIDTH: f32 = 44.0;
 const HEADER_HEIGHT: f32 = 32.0;
 const COMMENT_GUTTER_WIDTH: f32 = 20.0;
+const BASE_FONT_SIZE: f32 = 13.0;
+
+thread_local! {
+    static ZOOM_LEVEL: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+}
+
+fn line_height() -> f32 {
+    ZOOM_LEVEL.with(|z| BASE_LINE_HEIGHT * z.get())
+}
+
+fn gutter_width() -> f32 {
+    ZOOM_LEVEL.with(|z| BASE_GUTTER_WIDTH * z.get())
+}
+
+fn code_font_size() -> f32 {
+    ZOOM_LEVEL.with(|z| BASE_FONT_SIZE * z.get())
+}
+
+fn gutter_font_size() -> f32 {
+    ZOOM_LEVEL.with(|z| 11.0 * z.get())
+}
 
 fn handle_gutter_drop(drag: &CommentGutterDrag, drop_line: u32, cx: &mut App) {
     drag.review_state.update(cx, |rs, rcx| {
@@ -502,13 +523,15 @@ fn render_draft_overlay(
 pub struct GitView {
     state: Entity<GitState>,
     review_state: Entity<ReviewState>,
+    zoom: f32,
 }
 
 impl GitView {
-    pub fn new(state: Entity<GitState>, review_state: Entity<ReviewState>) -> Self {
+    pub fn new(state: Entity<GitState>, review_state: Entity<ReviewState>, zoom: f32) -> Self {
         Self {
             state,
             review_state,
+            zoom,
         }
     }
 
@@ -520,8 +543,8 @@ impl GitView {
         file_path: String,
     ) -> impl IntoElement {
         let item_count = rows.len();
-        let line_h = px(LINE_HEIGHT);
-        let gutter_w = px(GUTTER_WIDTH);
+        let line_h = px(line_height());
+        let gutter_w = px(gutter_width());
 
         uniform_list(
             "diff-scroll-newfile",
@@ -591,7 +614,7 @@ impl GitView {
                                     .items_center()
                                     .justify_end()
                                     .px(px(4.0))
-                                    .text_size(px(11.0))
+                                    .text_size(px(gutter_font_size()))
                                     .text_color(muted_fg)
                                     .child(lineno),
                             )
@@ -612,7 +635,7 @@ impl GitView {
         .h_full()
         .track_scroll(scroll_handle)
         .font_family("JetBrains Mono")
-        .text_size(px(13.0))
+        .text_size(px(code_font_size()))
     }
 
     fn render_split_diff(
@@ -625,8 +648,8 @@ impl GitView {
         file_path: String,
     ) -> impl IntoElement {
         let item_count = rows.len();
-        let line_h = px(LINE_HEIGHT);
-        let gutter_w = px(GUTTER_WIDTH);
+        let line_h = px(line_height());
+        let gutter_w = px(gutter_width());
         let split = split_pct;
 
         let list = uniform_list(
@@ -767,7 +790,7 @@ impl GitView {
                                             .items_center()
                                             .justify_end()
                                             .px(px(4.0))
-                                            .text_size(px(11.0))
+                                            .text_size(px(gutter_font_size()))
                                             .text_color(muted_fg)
                                             .child(left_lineno),
                                     )
@@ -799,7 +822,7 @@ impl GitView {
                                             .items_center()
                                             .justify_end()
                                             .px(px(4.0))
-                                            .text_size(px(11.0))
+                                            .text_size(px(gutter_font_size()))
                                             .text_color(muted_fg)
                                             .child(right_lineno),
                                     )
@@ -821,7 +844,7 @@ impl GitView {
         .h_full()
         .track_scroll(scroll_handle)
         .font_family("JetBrains Mono")
-        .text_size(px(13.0));
+        .text_size(px(code_font_size()));
 
         let chrome = use_ide_theme().chrome;
         let state_for_drag = git_state.clone();
@@ -875,8 +898,8 @@ impl GitView {
         file_path: String,
     ) -> impl IntoElement {
         let item_count = rows.len();
-        let line_h = px(LINE_HEIGHT);
-        let gutter_w = px(GUTTER_WIDTH);
+        let line_h = px(line_height());
+        let gutter_w = px(gutter_width());
 
         uniform_list(
             "diff-scroll-unified",
@@ -962,7 +985,7 @@ impl GitView {
                                     .items_center()
                                     .justify_end()
                                     .px(px(4.0))
-                                    .text_size(px(11.0))
+                                    .text_size(px(gutter_font_size()))
                                     .text_color(muted_fg)
                                     .child(old_no),
                             )
@@ -975,7 +998,7 @@ impl GitView {
                                     .items_center()
                                     .justify_end()
                                     .px(px(4.0))
-                                    .text_size(px(11.0))
+                                    .text_size(px(gutter_font_size()))
                                     .text_color(muted_fg)
                                     .child(new_no),
                             )
@@ -1008,7 +1031,7 @@ impl GitView {
         .h_full()
         .track_scroll(scroll_handle)
         .font_family("JetBrains Mono")
-        .text_size(px(13.0))
+        .text_size(px(code_font_size()))
     }
 
     fn render_deleted_file_diff(
@@ -1019,8 +1042,8 @@ impl GitView {
         file_path: String,
     ) -> impl IntoElement {
         let item_count = rows.len();
-        let line_h = px(LINE_HEIGHT);
-        let gutter_w = px(GUTTER_WIDTH);
+        let line_h = px(line_height());
+        let gutter_w = px(gutter_width());
 
         uniform_list(
             "diff-scroll-deleted",
@@ -1090,7 +1113,7 @@ impl GitView {
                                     .items_center()
                                     .justify_end()
                                     .px(px(4.0))
-                                    .text_size(px(11.0))
+                                    .text_size(px(gutter_font_size()))
                                     .text_color(muted_fg)
                                     .child(lineno),
                             )
@@ -1111,7 +1134,7 @@ impl GitView {
         .h_full()
         .track_scroll(scroll_handle)
         .font_family("JetBrains Mono")
-        .text_size(px(13.0))
+        .text_size(px(code_font_size()))
     }
 
     fn render_diff_panel(&self, cx: &mut App) -> impl IntoElement {
@@ -1263,7 +1286,7 @@ impl GitView {
                 .child(
                     div().flex_1().flex().items_center().justify_center().child(
                         div()
-                            .text_size(px(13.0))
+                            .text_size(px(code_font_size()))
                             .text_color(chrome.text_secondary)
                             .child("Select a file to view diff"),
                     ),
@@ -1286,7 +1309,7 @@ impl GitView {
                 .child(
                     div().flex_1().flex().items_center().justify_center().child(
                         div()
-                            .text_size(px(13.0))
+                            .text_size(px(code_font_size()))
                             .text_color(chrome.text_secondary)
                             .child("Binary file"),
                     ),
@@ -1451,7 +1474,7 @@ impl GitView {
                     let input = draft_input.clone()?;
                     let base_handle = scroll_handle.0.borrow().base_handle.clone();
                     let scroll_y = base_handle.offset().y;
-                    let overlay_top = px((draft_row as f32 + 1.0) * LINE_HEIGHT) + scroll_y;
+                    let overlay_top = px((draft_row as f32 + 1.0) * line_height()) + scroll_y;
 
                     Some(
                         div()
@@ -1516,7 +1539,7 @@ impl GitView {
                     })
                     .child({
                         let base_handle = scroll_handle.0.borrow().base_handle.clone();
-                        let total_h = row_count as f32 * LINE_HEIGHT;
+                        let total_h = row_count as f32 * line_height();
                         render_vertical_scrollbar(
                             "diff-vscroll",
                             base_handle,
@@ -1532,6 +1555,7 @@ impl GitView {
 
 impl RenderOnce for GitView {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        ZOOM_LEVEL.with(|z| z.set(self.zoom));
         div()
             .size_full()
             .flex()
