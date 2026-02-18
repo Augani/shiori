@@ -1,0 +1,147 @@
+name: Release macOS
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch: arm64
+          - target: x86_64-apple-darwin
+            arch: x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release
+        run: cargo +nightly build --release --target ${{ matrix.target }}
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: shiori-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/release/shiori
+
+  bundle-and-sign:
+    needs: build-macos
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: shiori-arm64
+          path: binaries/arm64
+
+      - name: Download x86_64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: shiori-x86_64
+          path: binaries/x86_64
+
+      - name: Create universal binary
+        run: |
+          chmod +x binaries/arm64/shiori binaries/x86_64/shiori
+          lipo -create binaries/arm64/shiori binaries/x86_64/shiori -output shiori-universal
+          file shiori-universal
+
+      - name: Bundle app
+        run: |
+          chmod +x macos/bundle.sh
+          bash macos/bundle.sh "${{ steps.version.outputs.version }}" ./shiori-universal
+
+      - name: Import signing certificate
+        if: env.APPLE_CERTIFICATE_P12 != ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          security import $RUNNER_TEMP/certificate.p12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Sign and create DMG
+        if: env.APPLE_SIGNING_IDENTITY != ''
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          chmod +x macos/sign.sh
+          bash macos/sign.sh "${{ steps.version.outputs.version }}" universal
+
+      - name: Create unsigned DMG (fallback)
+        if: env.APPLE_SIGNING_IDENTITY == ''
+        env:
+          APPLE_SIGNING_IDENTITY: ""
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          hdiutil create \
+            -volname "Shiori" \
+            -srcfolder Shiori.app \
+            -ov \
+            -format UDZO \
+            "Shiori-${VERSION}-universal.dmg"
+
+      - name: Generate checksums
+        run: |
+          shasum -a 256 Shiori-*.dmg > checksums-macos.txt
+          cat checksums-macos.txt
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: shiori-macos-dmg
+          path: |
+            Shiori-*.dmg
+            checksums-macos.txt
+
+  release:
+    needs: bundle-and-sign
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: shiori-macos-dmg
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Shiori-*.dmg
+            checksums-macos.txt
+          generate_release_notes: true

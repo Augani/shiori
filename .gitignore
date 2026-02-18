@@ -1,0 +1,11 @@
+/target
+Cargo.lock
+.DS_Store
+*.swp
+*.swo
+*.app
+*.dmg
+*.p12
+build/
+.claude-tasks.md
+.shiori/
