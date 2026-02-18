@@ -30,7 +30,7 @@ codesign --verify --verbose "$APP"
 
 echo "Creating DMG..."
 mkdir -p dmg_staging
-cp -R "$APP" dmg_staging/
+mv "$APP" dmg_staging/
 ln -s /Applications dmg_staging/Applications
 hdiutil create \
     -volname "Shiori" \
@@ -38,6 +38,7 @@ hdiutil create \
     -ov \
     -format UDZO \
     "$DMG"
+mv dmg_staging/"$APP" .
 rm -rf dmg_staging
 
 echo "Signing DMG..."

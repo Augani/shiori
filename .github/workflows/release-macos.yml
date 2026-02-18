@@ -73,6 +73,10 @@ jobs:
           rm -rf binaries shiori-universal
           rm -rf ~/Library/Caches/Homebrew
           rm -rf /Users/runner/Library/Caches
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/local/lib/node_modules
+          sudo rm -rf /usr/local/share/chromium
+          sudo rm -rf /opt/homebrew/Cellar
           df -h .
 
       - name: Import signing certificate
@@ -115,7 +119,7 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           mkdir -p dmg_staging
-          cp -R Shiori.app dmg_staging/
+          mv Shiori.app dmg_staging/
           ln -s /Applications dmg_staging/Applications
           hdiutil create \
             -volname "Shiori" \
@@ -123,6 +127,7 @@ jobs:
             -ov \
             -format UDZO \
             "Shiori-${VERSION}-universal.dmg"
+          mv dmg_staging/Shiori.app .
           rm -rf dmg_staging
 
       - name: Generate checksums
