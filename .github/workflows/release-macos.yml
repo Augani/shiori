@@ -71,12 +71,11 @@ jobs:
       - name: Free disk space
         run: |
           rm -rf binaries shiori-universal
-          rm -rf ~/Library/Caches/Homebrew
-          rm -rf /Users/runner/Library/Caches
-          sudo rm -rf /usr/local/share/powershell
-          sudo rm -rf /usr/local/lib/node_modules
-          sudo rm -rf /usr/local/share/chromium
-          sudo rm -rf /opt/homebrew/Cellar
+          sudo rm -rf ~/Library/Caches/Homebrew || true
+          sudo rm -rf /usr/local/share/powershell || true
+          sudo rm -rf /usr/local/lib/node_modules || true
+          sudo rm -rf /usr/local/share/chromium || true
+          sudo rm -rf /opt/homebrew/Cellar || true
           df -h .
 
       - name: Import signing certificate
