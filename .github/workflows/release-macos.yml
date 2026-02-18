@@ -68,6 +68,10 @@ jobs:
           chmod +x macos/bundle.sh
           bash macos/bundle.sh "${{ steps.version.outputs.version }}" ./shiori-universal
 
+      - name: Free disk space
+        run: |
+          rm -rf binaries shiori-universal
+
       - name: Import signing certificate
         if: env.APPLE_CERTIFICATE_P12 != ''
         env:
