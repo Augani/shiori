@@ -719,6 +719,10 @@ impl TerminalView {
                     let _ = open::that(&url);
                     return;
                 }
+                if let Some(url) = self.detect_url_at(line, col) {
+                    let _ = open::that(&url);
+                    return;
+                }
             }
 
             let now = Instant::now();
@@ -761,6 +765,30 @@ impl TerminalView {
         let line = self.state.line(line_idx)?;
         let cell = line.get(col)?;
         cell.hyperlink.as_ref().map(|s| s.as_str().to_string())
+    }
+
+    fn detect_url_at(&self, line_idx: usize, col: usize) -> Option<String> {
+        let line = self.state.line(line_idx)?;
+        let text: String = line.cells.iter().map(|c| c.char).collect();
+
+        for prefix in ["https://", "http://"] {
+            let mut search_from = 0;
+            while let Some(start) = text[search_from..].find(prefix) {
+                let abs_start = search_from + start;
+                let end = text[abs_start..]
+                    .find(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == '>' || c == '<' || c == ')' || c == ']')
+                    .map(|e| abs_start + e)
+                    .unwrap_or(text.len());
+                if col >= abs_start && col < end {
+                    let url = text[abs_start..end].trim_end_matches(|c: char| c == '.' || c == ',' || c == ';' || c == ':');
+                    if url.len() > prefix.len() {
+                        return Some(url.to_string());
+                    }
+                }
+                search_from = abs_start + prefix.len();
+            }
+        }
+        None
     }
 
     fn word_bounds_at(&self, line_idx: usize, col: usize) -> (usize, usize) {
