@@ -8,7 +8,7 @@ pub type HyperlinkRef = Arc<String>;
 
 pub const DEFAULT_COLS: usize = 80;
 pub const DEFAULT_ROWS: usize = 24;
-pub const DEFAULT_SCROLLBACK: usize = 10000;
+pub const DEFAULT_SCROLLBACK: usize = 5000;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CellStyle {
@@ -1010,18 +1010,19 @@ impl TerminalState {
             return;
         }
 
+        let mut alt_lines = VecDeque::with_capacity(self.rows);
+        for _ in 0..self.rows {
+            alt_lines.push_back(TerminalLine::new(self.cols));
+        }
+        std::mem::swap(&mut self.lines, &mut alt_lines);
+
         self.alt_screen = Some(Box::new(AltScreenState {
-            lines: self.lines.clone(),
+            lines: alt_lines,
             cursor: self.cursor,
-            saved_cursor: self.saved_cursor.clone(),
+            saved_cursor: self.saved_cursor.take(),
         }));
 
-        self.lines.clear();
-        for _ in 0..self.rows {
-            self.lines.push_back(TerminalLine::new(self.cols));
-        }
         self.cursor = CursorPosition::origin();
-        self.saved_cursor = None;
         self.use_alt_screen = true;
         self.scroll_offset = 0;
         self.image_placements.clear();
