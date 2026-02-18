@@ -103,6 +103,14 @@ impl PtyService {
             cmd.env("HOME", &home);
         }
         if let Ok(path) = std::env::var("PATH") {
+            let mut path = path;
+            for extra in ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"] {
+                if !path.split(':').any(|p| p == extra) {
+                    if Path::new(extra).exists() {
+                        path = format!("{}:{}", extra, path);
+                    }
+                }
+            }
             cmd.env("PATH", path);
         }
         if let Ok(user) = std::env::var("USER") {
