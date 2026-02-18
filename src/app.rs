@@ -71,6 +71,7 @@ actions!(
         FoldToggle,
         FoldAll,
         UnfoldAll,
+        CloseTerminal,
     ]
 );
 
@@ -1883,6 +1884,7 @@ impl AppState {
 
                         div()
                             .id(ElementId::Name(format!("term-tab-{}", idx).into()))
+                            .group("term-tab")
                             .h_full()
                             .flex()
                             .flex_shrink_0()
@@ -1906,14 +1908,15 @@ impl AppState {
                             .child(
                                 div()
                                     .id(ElementId::Name(format!("term-tab-close-{}", idx).into()))
-                                    .w(px(16.0))
-                                    .h(px(16.0))
+                                    .w(px(18.0))
+                                    .h(px(18.0))
                                     .flex()
                                     .items_center()
                                     .justify_center()
-                                    .rounded(px(3.0))
-                                    .text_color(muted_fg)
-                                    .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.1)).text_color(active_fg))
+                                    .rounded(px(4.0))
+                                    .opacity(0.0)
+                                    .group_hover("term-tab", |s| s.opacity(1.0))
+                                    .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.15)))
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.close_terminal_at(idx, cx);
                                     }))
@@ -4603,6 +4606,19 @@ impl AppState {
                 }),
         );
 
+        let a = app.clone();
+        commands.push(
+            Command::new("close-terminal", "Close Terminal")
+                .category("Terminal")
+                .on_select(move |_, cx| {
+                    a.update(cx, |this, cx| {
+                        if !this.terminals.is_empty() {
+                            this.close_terminal_at(this.active_terminal, cx);
+                        }
+                    });
+                }),
+        );
+
         commands
     }
 
@@ -4901,8 +4917,32 @@ impl Render for AppState {
             .on_action(cx.listener(|this, _: &SaveFile, _, cx| {
                 this.save_active(cx);
             }))
-            .on_action(cx.listener(|this, _: &CloseTab, _, cx| {
-                this.close_active_tab(cx);
+            .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
+                if this.terminal_fullscreen && !this.terminals.is_empty() {
+                    this.close_terminal_at(this.active_terminal, cx);
+                    if this.terminals.is_empty() {
+                        this.terminal_fullscreen = false;
+                    }
+                } else if this.panel_visible && !this.terminals.is_empty() {
+                    let term_focused = this.terminals.get(this.active_terminal)
+                        .map(|t| t.read(cx).focus_handle(cx).is_focused(window))
+                        .unwrap_or(false);
+                    if term_focused {
+                        this.close_terminal_at(this.active_terminal, cx);
+                        if this.terminals.is_empty() {
+                            this.panel_visible = false;
+                        }
+                    } else {
+                        this.close_active_tab(cx);
+                    }
+                } else {
+                    this.close_active_tab(cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &CloseTerminal, _, cx| {
+                if !this.terminals.is_empty() {
+                    this.close_terminal_at(this.active_terminal, cx);
+                }
             }))
             .on_action(cx.listener(|this, _: &OpenFile, _, cx| {
                 this.open_file_dialog(cx);

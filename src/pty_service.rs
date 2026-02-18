@@ -83,6 +83,7 @@ impl PtyService {
         let shell = get_default_shell();
 
         let mut cmd = CommandBuilder::new(&shell);
+        cmd.args(&["-l"]);
         cmd.cwd(&self.working_directory);
 
         cmd.env("TERM", "xterm-256color");
@@ -104,7 +105,12 @@ impl PtyService {
         }
         if let Ok(path) = std::env::var("PATH") {
             let mut path = path;
-            for extra in ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"] {
+            for extra in [
+                "/opt/homebrew/bin",
+                "/opt/homebrew/sbin",
+                "/usr/local/bin",
+                "/usr/local/go/bin",
+            ] {
                 if !path.split(':').any(|p| p == extra) {
                     if Path::new(extra).exists() {
                         path = format!("{}:{}", extra, path);
