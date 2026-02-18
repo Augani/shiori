@@ -1,4 +1,4 @@
-# Shiori
+# Shiori (Beta)
 
 A lightweight, GPU-accelerated code editor built for the age of AI coding agents.
 
@@ -14,7 +14,7 @@ Shiori takes the opposite approach: a fast, minimal editor where terminals are f
 
 | Platform | Status |
 |----------|--------|
-| macOS | Available now |
+| macOS | Beta |
 | Windows | Coming soon |
 | Linux | Coming soon |
 

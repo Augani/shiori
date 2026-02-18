@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-VERSION="${1:-0.1.0}"
+VERSION="${1:-0.2.0}"
 BINARY="${2:-$PROJECT_ROOT/target/release/shiori}"
 APP="Shiori.app"
 
