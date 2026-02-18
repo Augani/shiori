@@ -3,6 +3,7 @@ use gpui::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 const REVIEW_DIR: &str = ".shiori";
 const REVIEW_FILE: &str = "review.json";
@@ -67,6 +68,8 @@ pub struct CommentDraft {
 pub struct ReviewState {
     workspace_root: Option<PathBuf>,
     data: ReviewFile,
+    last_mtime: Option<SystemTime>,
+    poll_task: Option<Task<()>>,
     pub active_draft: Option<CommentDraft>,
     pub draft_input: Option<Entity<InputState>>,
 }
@@ -76,6 +79,8 @@ impl ReviewState {
         Self {
             workspace_root: None,
             data: ReviewFile::default(),
+            last_mtime: None,
+            poll_task: None,
             active_draft: None,
             draft_input: None,
         }
@@ -84,7 +89,37 @@ impl ReviewState {
     pub fn set_workspace(&mut self, root: PathBuf, cx: &mut Context<Self>) {
         self.workspace_root = Some(root);
         self.load();
+        self.start_polling(cx);
         cx.notify();
+    }
+
+    fn start_polling(&mut self, cx: &mut Context<Self>) {
+        let task = cx.spawn(async move |this, cx| loop {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(3))
+                .await;
+            let should_reload = this
+                .update(&mut cx.clone(), |this, _| this.file_changed_on_disk())
+                .unwrap_or(false);
+            if should_reload {
+                let _ = this.update(&mut cx.clone(), |this, cx| {
+                    this.load();
+                    cx.notify();
+                });
+            }
+        });
+        self.poll_task = Some(task);
+    }
+
+    fn file_changed_on_disk(&self) -> bool {
+        let path = match self.review_path() {
+            Some(p) => p,
+            None => return false,
+        };
+        let current_mtime = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .ok();
+        current_mtime != self.last_mtime
     }
 
     fn review_path(&self) -> Option<PathBuf> {
@@ -100,8 +135,12 @@ impl ReviewState {
         };
         if !path.exists() {
             self.data = ReviewFile::default();
+            self.last_mtime = None;
             return;
         }
+        self.last_mtime = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .ok();
         match std::fs::read_to_string(&path) {
             Ok(content) => match serde_json::from_str::<ReviewFile>(&content) {
                 Ok(file) => self.data = file,
@@ -117,7 +156,7 @@ impl ReviewState {
         }
     }
 
-    fn save(&self) {
+    fn save(&mut self) {
         let path = match self.review_path() {
             Some(p) => p,
             None => return,
@@ -132,6 +171,10 @@ impl ReviewState {
             Ok(json) => {
                 if let Err(e) = std::fs::write(&path, json) {
                     eprintln!("shiori: failed to write review file: {e}");
+                } else {
+                    self.last_mtime = std::fs::metadata(&path)
+                        .and_then(|m| m.modified())
+                        .ok();
                 }
             }
             Err(e) => eprintln!("shiori: failed to serialize review data: {e}"),
