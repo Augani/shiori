@@ -49,7 +49,13 @@ Tested against large files and high-throughput terminal workloads:
 
 ### macOS (DMG)
 
-Download the latest `.dmg` from [Releases](https://github.com/Augani/shiori/releases).
+Download the latest `.dmg` from [Releases](https://github.com/Augani/shiori/releases). Open the DMG and drag Shiori to Applications.
+
+To use `shiori` from the terminal:
+
+```bash
+sudo ln -sf /Applications/Shiori.app/Contents/MacOS/shiori /usr/local/bin/shiori
+```
 
 ### Build from source
 
@@ -87,6 +93,8 @@ shiori file1.rs file2.rs    # Open multiple files
 | `Cmd + S` | Save file |
 | `Cmd + F` | Find in file |
 | `Cmd + G` | Toggle git panel |
+| `Cmd + Shift + O` | Open folder |
+| `Cmd + Shift + K` | Symbol outline |
 
 ## Architecture
 

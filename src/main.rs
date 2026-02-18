@@ -129,6 +129,7 @@ fn main() {
                         if !file_paths.is_empty() {
                             state.open_paths(file_paths, cx);
                         }
+                        state.check_cli_install(cx);
                         state
                     })
                 },

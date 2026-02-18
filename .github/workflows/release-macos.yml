@@ -107,12 +107,16 @@ jobs:
           APPLE_SIGNING_IDENTITY: ""
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p dmg_staging
+          cp -R Shiori.app dmg_staging/
+          ln -s /Applications dmg_staging/Applications
           hdiutil create \
             -volname "Shiori" \
-            -srcfolder Shiori.app \
+            -srcfolder dmg_staging \
             -ov \
             -format UDZO \
             "Shiori-${VERSION}-universal.dmg"
+          rm -rf dmg_staging
 
       - name: Generate checksums
         run: |

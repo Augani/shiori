@@ -29,12 +29,16 @@ echo "Verifying signature..."
 codesign --verify --verbose "$APP"
 
 echo "Creating DMG..."
+mkdir -p dmg_staging
+cp -R "$APP" dmg_staging/
+ln -s /Applications dmg_staging/Applications
 hdiutil create \
     -volname "Shiori" \
-    -srcfolder "$APP" \
+    -srcfolder dmg_staging \
     -ov \
     -format UDZO \
     "$DMG"
+rm -rf dmg_staging
 
 echo "Signing DMG..."
 codesign --sign "$SIGNING_IDENTITY" "$DMG"

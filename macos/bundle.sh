@@ -35,6 +35,12 @@ else
     echo "Warning: assets directory not found"
 fi
 
+cat > "$APP/Contents/Resources/shiori-cli" << 'WRAPPER'
+#!/bin/bash
+exec "/Applications/Shiori.app/Contents/MacOS/shiori" "$@"
+WRAPPER
+chmod +x "$APP/Contents/Resources/shiori-cli"
+
 echo "Created $APP (v${VERSION})"
 echo "  Binary: $(file "$APP/Contents/MacOS/shiori" | cut -d: -f2-)"
 echo "  Size:   $(du -sh "$APP" | cut -f1)"

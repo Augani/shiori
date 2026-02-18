@@ -94,7 +94,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("cmd-f", ToggleSearch, Some("ShioriApp")),
         KeyBinding::new("cmd-h", ToggleSearchReplace, Some("ShioriApp")),
         KeyBinding::new("cmd-g", GotoLine, Some("ShioriApp")),
-        KeyBinding::new("cmd-shift-k", OpenFolder, Some("ShioriApp")),
+        KeyBinding::new("cmd-shift-o", OpenFolder, Some("ShioriApp")),
         KeyBinding::new("cmd-b", ToggleSidebar, Some("ShioriApp")),
         KeyBinding::new("cmd-`", ToggleTerminal, Some("ShioriApp")),
         KeyBinding::new(
@@ -104,7 +104,7 @@ pub fn init(cx: &mut App) {
         ),
         KeyBinding::new("cmd-shift-g", ToggleGitView, Some("ShioriApp")),
         KeyBinding::new("cmd-shift-p", ToggleCommandPalette, Some("ShioriApp")),
-        KeyBinding::new("cmd-shift-o", ToggleSymbolOutline, Some("ShioriApp")),
+        KeyBinding::new("cmd-shift-k", ToggleSymbolOutline, Some("ShioriApp")),
         KeyBinding::new("cmd-shift-[", FoldToggle, Some("ShioriApp")),
         KeyBinding::new("cmd-k cmd-0", FoldAll, Some("ShioriApp")),
         KeyBinding::new("cmd-k cmd-j", UnfoldAll, Some("ShioriApp")),
@@ -2202,7 +2202,7 @@ impl AppState {
             .text_size(px(12.0))
             .text_color(ide.chrome.text_secondary.opacity(0.7))
             .child("Cmd+O  Open file")
-            .child("Cmd+Shift+O  Open folder")
+            .child("Cmd+Shift+O  Open Folder")
             .child("Cmd+N  New file")
             .with_animation(
                 "welcome-shortcuts-anim",
@@ -2451,6 +2451,69 @@ impl AppState {
     fn render_explorer_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let ide = use_ide_theme();
         let chrome = &ide.chrome;
+
+        if self.workspace_root.is_none() {
+            let app_entity_open = cx.entity().clone();
+            return div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .w_full()
+                        .px(px(16.0))
+                        .pt(px(16.0))
+                        .pb(px(8.0))
+                        .border_b_1()
+                        .border_color(hsla(0.0, 0.0, 1.0, 0.05))
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(chrome.text_secondary)
+                                .child("EXPLORER"),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .gap(px(12.0))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(chrome.text_secondary.opacity(0.6))
+                                .child("No folder open"),
+                        )
+                        .child(
+                            div()
+                                .id("open-folder-btn")
+                                .cursor_pointer()
+                                .px(px(16.0))
+                                .py(px(8.0))
+                                .rounded(px(6.0))
+                                .bg(chrome.accent)
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(hsla(0.0, 0.0, 1.0, 1.0))
+                                .child("Open Folder")
+                                .on_click(move |_, _, cx| {
+                                    app_entity_open.update(cx, |this, cx| {
+                                        this.open_folder_dialog(cx);
+                                    });
+                                }),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(chrome.text_secondary.opacity(0.4))
+                                .child("⌘⇧O"),
+                        ),
+                );
+        }
 
         let app_entity = cx.entity().clone();
         let app_entity2 = cx.entity().clone();
@@ -4333,7 +4396,7 @@ impl AppState {
         commands.push(
             Command::new("open-folder", "Open Folder")
                 .category("File")
-                .shortcut("⌘⇧K")
+                .shortcut("⌘⇧O")
                 .on_select(move |_, cx| {
                     a.update(cx, |this, cx| {
                         this.open_folder_dialog(cx);
@@ -4418,7 +4481,7 @@ impl AppState {
         commands.push(
             Command::new("symbol-outline", "Symbol Outline")
                 .category("Navigation")
-                .shortcut("⌘⇧O")
+                .shortcut("⌘⇧K")
                 .on_select(move |_, cx| {
                     a.update(cx, |this, cx| {
                         this.symbol_outline_visible = !this.symbol_outline_visible;
@@ -4529,7 +4592,81 @@ impl AppState {
                 }),
         );
 
+        let a = app.clone();
+        commands.push(
+            Command::new("install-cli", "Install CLI Command")
+                .category("System")
+                .on_select(move |_, cx| {
+                    a.update(cx, |this, cx| {
+                        this.install_cli(cx);
+                    });
+                }),
+        );
+
         commands
+    }
+
+    pub fn check_cli_install(&self, cx: &mut Context<Self>) {
+        let target = PathBuf::from("/usr/local/bin/shiori");
+        if target.exists() {
+            return;
+        }
+
+        let is_app_bundle = std::env::current_exe()
+            .map(|p| p.to_string_lossy().contains("Shiori.app"))
+            .unwrap_or(false);
+        if !is_app_bundle {
+            return;
+        }
+
+        self.install_cli(cx);
+    }
+
+    fn install_cli(&self, cx: &mut Context<Self>) {
+        let binary = std::env::current_exe().ok();
+        let target = PathBuf::from("/usr/local/bin/shiori");
+
+        if target.exists() {
+            if let Ok(resolved) = std::fs::read_link(&target) {
+                if binary.as_ref() == Some(&resolved)
+                    || resolved.to_string_lossy().contains("Shiori.app")
+                {
+                    return;
+                }
+            }
+        }
+
+        let source = binary
+            .filter(|p| p.to_string_lossy().contains("Shiori.app"))
+            .unwrap_or_else(|| PathBuf::from("/Applications/Shiori.app/Contents/MacOS/shiori"));
+
+        let script = format!(
+            "do shell script \"mkdir -p /usr/local/bin && ln -sf '{}' /usr/local/bin/shiori\" with administrator privileges",
+            source.display()
+        );
+
+        cx.spawn(async move |_, _cx| {
+            let result = std::process::Command::new("osascript")
+                .arg("-e")
+                .arg(&script)
+                .output();
+
+            match result {
+                Ok(output) if output.status.success() => {
+                    eprintln!("[shiori] CLI installed to /usr/local/bin/shiori");
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    if !stderr.contains("User canceled") {
+                        eprintln!("[shiori] CLI install failed: {}", stderr);
+                    }
+                }
+                Err(err) => {
+                    eprintln!("[shiori] CLI install error: {}", err);
+                }
+            }
+        })
+        .detach();
     }
 }
 
