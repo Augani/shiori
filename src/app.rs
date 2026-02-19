@@ -17,6 +17,7 @@ use adabraka_ui::components::editor::{
     DiagnosticSeverity as EditorDiagSeverity, Editor, EditorDiagnostic, EditorState,
     Enter as EditorEnter, Language, MoveDown, MoveUp, Tab as EditorTab,
 };
+use adabraka_ui::components::combobox::{Combobox, ComboboxState};
 use adabraka_ui::components::confirm_dialog::Dialog;
 use adabraka_ui::components::icon::Icon;
 use adabraka_ui::components::input::{Input, InputState};
@@ -87,12 +88,6 @@ pub enum ViewMode {
     Settings,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FontSettingKind {
-    Editor,
-    Terminal,
-    TerminalFallback,
-}
 
 pub fn init(cx: &mut App) {
     crate::search_bar::init(cx);
@@ -139,6 +134,7 @@ pub fn init(cx: &mut App) {
     ]);
 }
 
+#[allow(dead_code)]
 pub struct AppState {
     focus_handle: FocusHandle,
     buffers: Vec<Entity<EditorState>>,
@@ -182,6 +178,12 @@ pub struct AppState {
     lsp_registry: LspRegistry,
     settings: ShioriSettings,
     system_mono_fonts: Vec<String>,
+    editor_font_combobox_state: Entity<ComboboxState<String>>,
+    editor_font_combobox: Entity<Combobox<String>>,
+    terminal_font_combobox_state: Entity<ComboboxState<String>>,
+    terminal_font_combobox: Entity<Combobox<String>>,
+    fallback_font_combobox_state: Entity<ComboboxState<String>>,
+    fallback_font_combobox: Entity<Combobox<String>>,
     buffer_diagnostics: HashMap<PathBuf, Vec<LspDiagnostic>>,
     lsp_poll_task: Option<Task<()>>,
     lsp_doc_versions: HashMap<PathBuf, i32>,
@@ -515,6 +517,96 @@ impl AppState {
         let file_search_input = cx.new(InputState::new);
         let system_mono_fonts = Self::enumerate_mono_fonts(cx);
 
+        let mut fallback_fonts = vec!["None".to_string()];
+        fallback_fonts.extend(system_mono_fonts.clone());
+
+        let editor_font_combobox_state = cx.new(|_| {
+            ComboboxState::<String>::new().with_selected(loaded_settings.editor_font.clone())
+        });
+        let ef_fonts = system_mono_fonts.clone();
+        let app_entity_ef = cx.entity().clone();
+        let editor_font_combobox = cx.new(|cx| {
+            Combobox::new(ef_fonts, &editor_font_combobox_state, cx)
+                .placeholder("Search editor fonts...")
+                .clearable(false)
+                .max_height(px(250.0))
+                .filter_fn(|item, search| item.to_lowercase().contains(search))
+                .render_item(|item| SharedString::from(item.clone()))
+                .on_select(move |font, _window, cx| {
+                    app_entity_ef.update(cx, |this, cx| {
+                        this.settings.editor_font = font.clone();
+                        for buffer in &this.buffers {
+                            buffer.update(cx, |state, ecx| {
+                                state.set_font_family(font.clone(), ecx);
+                            });
+                        }
+                        this.settings.save();
+                        cx.notify();
+                    });
+                })
+        });
+
+        let terminal_font_combobox_state = cx.new(|_| {
+            ComboboxState::<String>::new().with_selected(loaded_settings.terminal_font.clone())
+        });
+        let tf_fonts = system_mono_fonts.clone();
+        let app_entity_tf = cx.entity().clone();
+        let terminal_font_combobox = cx.new(|cx| {
+            Combobox::new(tf_fonts, &terminal_font_combobox_state, cx)
+                .placeholder("Search terminal fonts...")
+                .clearable(false)
+                .max_height(px(250.0))
+                .filter_fn(|item, search| item.to_lowercase().contains(search))
+                .render_item(|item| SharedString::from(item.clone()))
+                .on_select(move |font, _window, cx| {
+                    app_entity_tf.update(cx, |this, cx| {
+                        this.settings.terminal_font = font.clone();
+                        for terminal in &this.terminals {
+                            terminal.update(cx, |tv, _cx| {
+                                tv.set_font_family(font.clone());
+                            });
+                        }
+                        this.settings.save();
+                        cx.notify();
+                    });
+                })
+        });
+
+        let fallback_font_combobox_state = cx.new(|_| {
+            let initial = loaded_settings
+                .terminal_font_fallback
+                .clone()
+                .unwrap_or_else(|| "None".to_string());
+            ComboboxState::<String>::new().with_selected(initial)
+        });
+        let fb_fonts = fallback_fonts;
+        let app_entity_fb = cx.entity().clone();
+        let fallback_font_combobox = cx.new(|cx| {
+            Combobox::new(fb_fonts, &fallback_font_combobox_state, cx)
+                .placeholder("Search fallback fonts...")
+                .clearable(false)
+                .max_height(px(250.0))
+                .filter_fn(|item, search| item.to_lowercase().contains(search))
+                .render_item(|item| SharedString::from(item.clone()))
+                .on_select(move |font, _window, cx| {
+                    app_entity_fb.update(cx, |this, cx| {
+                        let fallback = if font == "None" {
+                            None
+                        } else {
+                            Some(font.clone())
+                        };
+                        this.settings.terminal_font_fallback = fallback.clone();
+                        for terminal in &this.terminals {
+                            terminal.update(cx, |tv, _cx| {
+                                tv.set_font_fallback(fallback.clone());
+                            });
+                        }
+                        this.settings.save();
+                        cx.notify();
+                    });
+                })
+        });
+
         let app_entity = cx.entity().clone();
         let search_bar = cx.new(|cx| {
             let mut bar = SearchBar::new(cx);
@@ -576,6 +668,12 @@ impl AppState {
             lsp_registry: LspRegistry::new(),
             settings: loaded_settings,
             system_mono_fonts,
+            editor_font_combobox_state,
+            editor_font_combobox,
+            terminal_font_combobox_state,
+            terminal_font_combobox,
+            fallback_font_combobox_state,
+            fallback_font_combobox,
             buffer_diagnostics: HashMap::new(),
             lsp_poll_task: None,
             lsp_doc_versions: HashMap::new(),
@@ -4041,167 +4139,12 @@ impl AppState {
         mono
     }
 
-    fn render_font_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_font_settings(&self, _cx: &mut Context<Self>) -> impl IntoElement {
         let ide = use_ide_theme();
         let chrome = &ide.chrome;
 
-        let current_editor_font = self.settings.editor_font.clone();
-        let current_terminal_font = self.settings.terminal_font.clone();
-        let current_fallback = self
-            .settings
-            .terminal_font_fallback
-            .clone()
-            .unwrap_or_default();
-
-        let make_font_list = |label: &'static str,
-                              hint: &'static str,
-                              current: &str,
-                              kind: FontSettingKind,
-                              cx: &mut Context<Self>| {
-            let fonts = &self.system_mono_fonts;
-            let scroll_handle = ScrollHandle::new();
-
-            let mut list = div()
-                .id(ElementId::Name(format!("font-list-{:?}", kind).into()))
-                .w_full()
-                .max_h(px(200.0))
-                .overflow_y_scroll()
-                .track_scroll(&scroll_handle)
-                .rounded(px(6.0))
-                .border_1()
-                .border_color(hsla(0.0, 0.0, 1.0, 0.08))
-                .bg(chrome.panel_bg)
-                .flex()
-                .flex_col();
-
-            if kind == FontSettingKind::TerminalFallback {
-                let none_selected = current.is_empty();
-                list = list.child(
-                    div()
-                        .id("fb-none")
-                        .px(px(12.0))
-                        .py(px(4.0))
-                        .cursor_pointer()
-                        .text_size(px(12.0))
-                        .text_color(if none_selected {
-                            chrome.bright
-                        } else {
-                            chrome.text_secondary
-                        })
-                        .when(none_selected, |el| {
-                            el.bg(chrome.accent.opacity(0.15))
-                        })
-                        .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.06)))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.settings.terminal_font_fallback = None;
-                            for terminal in &this.terminals {
-                                terminal.update(cx, |tv, _cx| {
-                                    tv.set_font_fallback(None);
-                                });
-                            }
-                            this.settings.save();
-                            cx.notify();
-                        }))
-                        .child("None"),
-                );
-            }
-
-            for font_name in fonts {
-                let is_selected = current == *font_name;
-                let fname = font_name.clone();
-                let fk = kind;
-                list = list.child(
-                    div()
-                        .id(ElementId::Name(
-                            format!("{:?}-{}", kind, fname).into(),
-                        ))
-                        .px(px(12.0))
-                        .py(px(4.0))
-                        .cursor_pointer()
-                        .text_size(px(12.0))
-                        .font_family(SharedString::from(font_name.clone()))
-                        .text_color(if is_selected {
-                            chrome.bright
-                        } else {
-                            chrome.text_secondary
-                        })
-                        .when(is_selected, |el| {
-                            el.bg(chrome.accent.opacity(0.15))
-                        })
-                        .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.06)))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            match fk {
-                                FontSettingKind::Editor => {
-                                    this.settings.editor_font = fname.clone();
-                                    for buffer in &this.buffers {
-                                        buffer.update(cx, |state, cx| {
-                                            state.set_font_family(fname.clone(), cx);
-                                        });
-                                    }
-                                }
-                                FontSettingKind::Terminal => {
-                                    this.settings.terminal_font = fname.clone();
-                                    for terminal in &this.terminals {
-                                        terminal.update(cx, |tv, _cx| {
-                                            tv.set_font_family(fname.clone());
-                                        });
-                                    }
-                                }
-                                FontSettingKind::TerminalFallback => {
-                                    this.settings.terminal_font_fallback = Some(fname.clone());
-                                    let fb = Some(fname.clone());
-                                    for terminal in &this.terminals {
-                                        terminal.update(cx, |tv, _cx| {
-                                            tv.set_font_fallback(fb.clone());
-                                        });
-                                    }
-                                }
-                            }
-                            this.settings.save();
-                            cx.notify();
-                        }))
-                        .child(font_name.clone()),
-                );
-            }
-
-            div()
-                .w_full()
-                .flex()
-                .flex_col()
-                .gap(px(6.0))
-                .child(
-                    div()
-                        .flex()
-                        .gap(px(8.0))
-                        .items_center()
-                        .child(
-                            div()
-                                .text_size(px(13.0))
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(chrome.bright)
-                                .child(label),
-                        )
-                        .when(!hint.is_empty(), |el| {
-                            el.child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(chrome.text_secondary)
-                                    .child(hint),
-                            )
-                        }),
-                )
-                .child(
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(chrome.dim)
-                        .font_family(SharedString::from(current.to_string()))
-                        .child(format!("Current: {}", if current.is_empty() { "None" } else { current })),
-                )
-                .child(list)
-        };
-
         div()
-            .w_full()
+            .max_w(px(500.0))
             .flex()
             .flex_col()
             .gap(px(16.0))
@@ -4212,27 +4155,63 @@ impl AppState {
                     .text_color(chrome.text_secondary)
                     .child("FONTS"),
             )
-            .child(make_font_list(
-                "Editor Font",
-                "",
-                &current_editor_font,
-                FontSettingKind::Editor,
-                cx,
-            ))
-            .child(make_font_list(
-                "Terminal Font",
-                "",
-                &current_terminal_font,
-                FontSettingKind::Terminal,
-                cx,
-            ))
-            .child(make_font_list(
-                "Terminal Fallback Font",
-                "(for icons & special characters)",
-                &current_fallback,
-                FontSettingKind::TerminalFallback,
-                cx,
-            ))
+            .child(
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.0))
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(chrome.bright)
+                            .child("Editor Font"),
+                    )
+                    .child(self.editor_font_combobox.clone()),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.0))
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(chrome.bright)
+                            .child("Terminal Font"),
+                    )
+                    .child(self.terminal_font_combobox.clone()),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.0))
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(8.0))
+                            .items_center()
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(chrome.bright)
+                                    .child("Terminal Fallback Font"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(chrome.text_secondary)
+                                    .child("(for icons & special characters)"),
+                            ),
+                    )
+                    .child(self.fallback_font_combobox.clone()),
+            )
     }
 
     fn render_lsp_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
