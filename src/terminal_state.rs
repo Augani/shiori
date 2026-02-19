@@ -387,6 +387,7 @@ pub struct TerminalState {
     application_keypad: bool,
     tab_stops: Vec<bool>,
     title_stack: Vec<String>,
+    keyboard_mode_stack: Vec<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -460,6 +461,7 @@ impl TerminalState {
             application_keypad: false,
             tab_stops,
             title_stack: Vec::new(),
+            keyboard_mode_stack: Vec::new(),
         }
     }
 
@@ -597,6 +599,39 @@ impl TerminalState {
             CursorStyle::Block => 2,
             CursorStyle::Underline => 4,
             CursorStyle::Bar => 6,
+        }
+    }
+
+    pub fn keyboard_mode_flags(&self) -> u32 {
+        self.keyboard_mode_stack.last().copied().unwrap_or(0)
+    }
+
+    pub fn push_keyboard_mode(&mut self, flags: u32) {
+        if self.keyboard_mode_stack.len() < 8 {
+            self.keyboard_mode_stack.push(flags);
+        }
+    }
+
+    pub fn pop_keyboard_mode(&mut self, n: u32) {
+        for _ in 0..n {
+            if self.keyboard_mode_stack.pop().is_none() {
+                break;
+            }
+        }
+    }
+
+    pub fn set_keyboard_mode(&mut self, flags: u32, mode: u8) {
+        let current = self.keyboard_mode_flags();
+        let new_flags = match mode {
+            1 => flags,
+            2 => current | flags,
+            3 => current & !flags,
+            _ => flags,
+        };
+        if let Some(last) = self.keyboard_mode_stack.last_mut() {
+            *last = new_flags;
+        } else {
+            self.keyboard_mode_stack.push(new_flags);
         }
     }
 

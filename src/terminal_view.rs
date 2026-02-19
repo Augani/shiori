@@ -513,6 +513,20 @@ impl TerminalView {
                 };
                 self.send_input(response.as_bytes());
             }
+            ParsedSegment::QueryKeyboardMode => {
+                let flags = self.state.keyboard_mode_flags();
+                let response = format!("\x1b[?{}u", flags);
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::PushKeyboardMode(flags) => {
+                self.state.push_keyboard_mode(flags);
+            }
+            ParsedSegment::PopKeyboardMode(n) => {
+                self.state.pop_keyboard_mode(n);
+            }
+            ParsedSegment::SetKeyboardMode(flags, mode) => {
+                self.state.set_keyboard_mode(flags, mode);
+            }
         }
     }
 
@@ -629,6 +643,64 @@ impl TerminalView {
         modifiers.shift || modifiers.alt || modifiers.control
     }
 
+    fn encode_key_kitty(&mut self, key: &str, event: &KeyDownEvent) -> bool {
+        let flags = self.state.keyboard_mode_flags();
+        if flags == 0 {
+            return false;
+        }
+
+        let disambiguate = flags & 1 != 0;
+        if !disambiguate {
+            return false;
+        }
+
+        let mods = &event.keystroke.modifiers;
+        let mod_val = Self::modifier_value(mods);
+        let has_mods = Self::has_modifiers(mods);
+
+        let codepoint = match key {
+            "enter" => Some(13u32),
+            "tab" => Some(9),
+            "backspace" => Some(127),
+            "escape" => Some(27),
+            "space" => Some(32),
+            "delete" => Some(57361),
+            "insert" => Some(57348),
+            "up" => Some(57352),
+            "down" => Some(57353),
+            "right" => Some(57351),
+            "left" => Some(57350),
+            "home" => Some(57360),
+            "end" => Some(57359),
+            "pageup" => Some(57354),
+            "pagedown" => Some(57355),
+            _ => None,
+        };
+
+        if let Some(cp) = codepoint {
+            let seq = if has_mods {
+                format!("\x1b[{};{}u", cp, mod_val)
+            } else {
+                format!("\x1b[{}u", cp)
+            };
+            self.send_input(seq.as_bytes());
+            return true;
+        }
+
+        if let Some(key_char) = &event.keystroke.key_char {
+            if let Some(c) = key_char.chars().next() {
+                if mods.control && c.is_ascii_alphabetic() {
+                    let cp = c.to_ascii_lowercase() as u32;
+                    let seq = format!("\x1b[{};{}u", cp, mod_val);
+                    self.send_input(seq.as_bytes());
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     pub fn handle_key_down(
         &mut self,
         event: &KeyDownEvent,
@@ -645,6 +717,11 @@ impl TerminalView {
         }
 
         let key = event.keystroke.key.as_str();
+
+        if self.encode_key_kitty(key, event) {
+            self.reset_cursor_blink();
+            return;
+        }
 
         let app_cursor = self.state.application_cursor_keys();
         let handled = match key {

@@ -232,6 +232,10 @@ pub enum ParsedSegment {
     PopTitle,
     XtGetTcap(String),
     DecrqssRequest(String),
+    QueryKeyboardMode,
+    PushKeyboardMode(u32),
+    PopKeyboardMode(u32),
+    SetKeyboardMode(u32, u8),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1260,6 +1264,32 @@ impl AnsiParser {
     }
 
     fn execute_private_mode(&mut self, final_byte: u8, segments: &mut Vec<ParsedSegment>) {
+        if final_byte == b'u' {
+            match self.private_marker {
+                Some(b'?') => {
+                    segments.push(ParsedSegment::QueryKeyboardMode);
+                    return;
+                }
+                Some(b'>') => {
+                    let flags = self.params.first().copied().unwrap_or(0) as u32;
+                    segments.push(ParsedSegment::PushKeyboardMode(flags));
+                    return;
+                }
+                Some(b'<') => {
+                    let n = self.params.first().copied().unwrap_or(1) as u32;
+                    segments.push(ParsedSegment::PopKeyboardMode(n));
+                    return;
+                }
+                Some(b'=') => {
+                    let flags = self.params.first().copied().unwrap_or(0) as u32;
+                    let mode = self.params.get(1).copied().unwrap_or(1) as u8;
+                    segments.push(ParsedSegment::SetKeyboardMode(flags, mode));
+                    return;
+                }
+                _ => return,
+            }
+        }
+
         if final_byte == b'c' {
             if self.private_marker == Some(b'>') {
                 segments.push(ParsedSegment::DeviceAttributes(1));
