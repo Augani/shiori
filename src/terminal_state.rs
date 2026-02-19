@@ -1467,6 +1467,11 @@ impl TerminalState {
             let (new_cursor_abs, new_cursor_col) =
                 Self::reflow_lines(&mut self.lines, old_cols, cols, cursor_abs, self.cursor.col);
 
+            let max_lines = new_cursor_abs.saturating_add(rows);
+            while self.lines.len() > max_lines {
+                self.lines.pop_back();
+            }
+
             let viewport_start = if self.lines.len() >= rows {
                 self.lines.len() - rows
             } else {
