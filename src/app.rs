@@ -1826,9 +1826,11 @@ impl AppState {
         let working_dir = self.current_working_directory();
         let zoom = self.zoom_level;
         let font = self.settings.terminal_font.clone();
+        let font_fallback = self.settings.terminal_font_fallback.clone();
         let terminal = cx.new(|cx| TerminalView::new(cx).with_working_directory(working_dir));
         terminal.update(cx, |t, cx| {
             t.set_font_family(font);
+            t.set_font_fallback(font_fallback);
             if (zoom - 1.0).abs() > f32::EPSILON {
                 t.set_font_size(13.0 * zoom);
             }
@@ -4092,6 +4094,134 @@ impl AppState {
                 false,
                 cx,
             ))
+            .child(self.render_terminal_fallback_font(cx))
+    }
+
+    fn render_terminal_fallback_font(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let ide = use_ide_theme();
+        let chrome = &ide.chrome;
+        let fonts = [
+            "JetBrains Mono",
+            "Fira Code",
+            "SF Mono",
+            "Menlo",
+            "Monaco",
+            "Source Code Pro",
+            "IBM Plex Mono",
+            "Cascadia Code",
+            "Hack",
+            "Inconsolata",
+        ];
+
+        let current_fallback = self
+            .settings
+            .terminal_font_fallback
+            .as_deref()
+            .unwrap_or("");
+
+        let mut row = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(px(8.0))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(8.0))
+                    .items_center()
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(chrome.bright)
+                            .child("Terminal Fallback Font"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(chrome.text_secondary)
+                            .child("(for icons & special characters)"),
+                    ),
+            );
+
+        let mut font_grid = div().w_full().flex().flex_wrap().gap(px(8.0));
+
+        let none_selected = current_fallback.is_empty();
+        font_grid = font_grid.child(
+            div()
+                .id("fallback-none")
+                .px(px(12.0))
+                .py(px(6.0))
+                .rounded(px(6.0))
+                .cursor_pointer()
+                .text_size(px(12.0))
+                .when(none_selected, |el| {
+                    el.bg(chrome.accent.opacity(0.2))
+                        .border_1()
+                        .border_color(chrome.accent)
+                        .text_color(chrome.bright)
+                })
+                .when(!none_selected, |el| {
+                    el.bg(chrome.panel_bg)
+                        .border_1()
+                        .border_color(hsla(0.0, 0.0, 1.0, 0.1))
+                        .text_color(chrome.text_secondary)
+                        .hover(|s| s.border_color(hsla(0.0, 0.0, 1.0, 0.2)))
+                })
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.settings.terminal_font_fallback = None;
+                    for terminal in &this.terminals {
+                        terminal.update(cx, |tv, _cx| {
+                            tv.set_font_fallback(None);
+                        });
+                    }
+                    this.settings.save();
+                    cx.notify();
+                }))
+                .child("None"),
+        );
+
+        for font_name in &fonts {
+            let is_selected = current_fallback == *font_name;
+            let fname = font_name.to_string();
+            font_grid = font_grid.child(
+                div()
+                    .id(ElementId::Name(format!("fb-font-{}", fname).into()))
+                    .px(px(12.0))
+                    .py(px(6.0))
+                    .rounded(px(6.0))
+                    .cursor_pointer()
+                    .text_size(px(12.0))
+                    .font_family(SharedString::from(*font_name))
+                    .when(is_selected, |el| {
+                        el.bg(chrome.accent.opacity(0.2))
+                            .border_1()
+                            .border_color(chrome.accent)
+                            .text_color(chrome.bright)
+                    })
+                    .when(!is_selected, |el| {
+                        el.bg(chrome.panel_bg)
+                            .border_1()
+                            .border_color(hsla(0.0, 0.0, 1.0, 0.1))
+                            .text_color(chrome.text_secondary)
+                            .hover(|s| s.border_color(hsla(0.0, 0.0, 1.0, 0.2)))
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.settings.terminal_font_fallback = Some(fname.clone());
+                        let fb = Some(fname.clone());
+                        for terminal in &this.terminals {
+                            terminal.update(cx, |tv, _cx| {
+                                tv.set_font_fallback(fb.clone());
+                            });
+                        }
+                        this.settings.save();
+                        cx.notify();
+                    }))
+                    .child(*font_name),
+            );
+        }
+        row = row.child(font_grid);
+        row
     }
 
     fn render_lsp_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {

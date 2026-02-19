@@ -54,6 +54,7 @@ pub struct TerminalView {
     pub font_size: f32,
     pub line_height: f32,
     pub font_family: String,
+    pub font_fallback: Option<String>,
 }
 
 impl TerminalView {
@@ -67,6 +68,18 @@ impl TerminalView {
         self.font_family = family;
         self.char_width = 0.0;
         self.last_resize = None;
+    }
+
+    pub fn set_font_fallback(&mut self, fallback: Option<String>) {
+        self.font_fallback = fallback;
+        self.char_width = 0.0;
+        self.last_resize = None;
+    }
+
+    fn font_fallbacks(&self) -> Option<gpui::FontFallbacks> {
+        self.font_fallback.as_ref().map(|fb| {
+            gpui::FontFallbacks::from_fonts(vec![fb.clone()])
+        })
     }
 
     pub fn title(&self) -> String {
@@ -119,6 +132,7 @@ impl TerminalView {
             font_size: 13.0,
             line_height: LINE_HEIGHT,
             font_family: "JetBrains Mono".to_string(),
+            font_fallback: None,
         }
     }
 
@@ -401,7 +415,7 @@ impl TerminalView {
         let font = Font {
             family: SharedString::from(self.font_family.clone()),
             features: Default::default(),
-            fallbacks: None,
+            fallbacks: self.font_fallbacks(),
             weight: FontWeight::NORMAL,
             style: FontStyle::Normal,
         };
@@ -1262,7 +1276,13 @@ impl TerminalView {
             .h(px(self.line_height))
             .w_full()
             .flex()
-            .font_family(self.font_family.clone())
+            .font(Font {
+                family: SharedString::from(self.font_family.clone()),
+                features: Default::default(),
+                fallbacks: self.font_fallbacks(),
+                weight: FontWeight::NORMAL,
+                style: FontStyle::Normal,
+            })
             .text_size(px(self.font_size))
             .children(spans)
     }

@@ -10,6 +10,8 @@ pub struct ShioriSettings {
     pub theme: String,
     #[serde(default = "default_font")]
     pub terminal_font: String,
+    #[serde(default)]
+    pub terminal_font_fallback: Option<String>,
     #[serde(default = "default_font")]
     pub editor_font: String,
     #[serde(default)]
@@ -43,6 +45,7 @@ impl Default for ShioriSettings {
             lsp_enabled: false,
             theme: default_theme(),
             terminal_font: default_font(),
+            terminal_font_fallback: None,
             editor_font: default_font(),
             language_servers: default_language_servers(),
         }
