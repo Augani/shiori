@@ -749,7 +749,7 @@ impl AnsiParser {
     fn handle_dcs_entry(&mut self, byte: u8) {
         match byte {
             0x1B => {
-                self.state = ParserState::Ground;
+                self.state = ParserState::Escape;
             }
             _ => {
                 self.dcs_string.push(byte);
@@ -762,7 +762,7 @@ impl AnsiParser {
         match byte {
             0x1B => {
                 self.execute_dcs(segments);
-                self.state = ParserState::Ground;
+                self.state = ParserState::Escape;
             }
             0x07 => {
                 self.execute_dcs(segments);

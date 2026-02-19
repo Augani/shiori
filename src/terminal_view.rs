@@ -404,41 +404,41 @@ impl TerminalView {
             ParsedSegment::QueryForegroundColor => {
                 let fg = self.parser.foreground_color();
                 let response = format!(
-                    "\x1b]10;rgb:{:02x}/{:02x}/{:02x}\x1b\\",
-                    (fg.r * 255.0) as u8,
-                    (fg.g * 255.0) as u8,
-                    (fg.b * 255.0) as u8,
+                    "\x1b]10;rgb:{:04x}/{:04x}/{:04x}\x1b\\",
+                    (fg.r * 255.0) as u16 * 257,
+                    (fg.g * 255.0) as u16 * 257,
+                    (fg.b * 255.0) as u16 * 257,
                 );
                 self.send_input(response.as_bytes());
             }
             ParsedSegment::QueryBackgroundColor => {
                 let bg = self.parser.background_color();
                 let response = format!(
-                    "\x1b]11;rgb:{:02x}/{:02x}/{:02x}\x1b\\",
-                    (bg.r * 255.0) as u8,
-                    (bg.g * 255.0) as u8,
-                    (bg.b * 255.0) as u8,
+                    "\x1b]11;rgb:{:04x}/{:04x}/{:04x}\x1b\\",
+                    (bg.r * 255.0) as u16 * 257,
+                    (bg.g * 255.0) as u16 * 257,
+                    (bg.b * 255.0) as u16 * 257,
                 );
                 self.send_input(response.as_bytes());
             }
             ParsedSegment::QueryCursorColor => {
                 let fg = self.parser.foreground_color();
                 let response = format!(
-                    "\x1b]12;rgb:{:02x}/{:02x}/{:02x}\x1b\\",
-                    (fg.r * 255.0) as u8,
-                    (fg.g * 255.0) as u8,
-                    (fg.b * 255.0) as u8,
+                    "\x1b]12;rgb:{:04x}/{:04x}/{:04x}\x1b\\",
+                    (fg.r * 255.0) as u16 * 257,
+                    (fg.g * 255.0) as u16 * 257,
+                    (fg.b * 255.0) as u16 * 257,
                 );
                 self.send_input(response.as_bytes());
             }
             ParsedSegment::QueryPaletteColor(idx) => {
                 let color = self.parser.palette_color(idx);
                 let response = format!(
-                    "\x1b]4;{};rgb:{:02x}/{:02x}/{:02x}\x1b\\",
+                    "\x1b]4;{};rgb:{:04x}/{:04x}/{:04x}\x1b\\",
                     idx,
-                    (color.r * 255.0) as u8,
-                    (color.g * 255.0) as u8,
-                    (color.b * 255.0) as u8,
+                    (color.r * 255.0) as u16 * 257,
+                    (color.g * 255.0) as u16 * 257,
+                    (color.b * 255.0) as u16 * 257,
                 );
                 self.send_input(response.as_bytes());
             }
@@ -664,27 +664,32 @@ impl TerminalView {
             "backspace" => Some(127),
             "escape" => Some(27),
             "space" => Some(32),
-            "delete" => Some(57361),
+            "delete" => Some(57349),
             "insert" => Some(57348),
             "up" => Some(57352),
             "down" => Some(57353),
             "right" => Some(57351),
             "left" => Some(57350),
-            "home" => Some(57360),
-            "end" => Some(57359),
+            "home" => Some(57356),
+            "end" => Some(57357),
             "pageup" => Some(57354),
             "pagedown" => Some(57355),
             _ => None,
         };
 
+        let report_all = flags & 8 != 0;
+
         if let Some(cp) = codepoint {
-            let seq = if has_mods {
-                format!("\x1b[{};{}u", cp, mod_val)
-            } else {
-                format!("\x1b[{}u", cp)
-            };
-            self.send_input(seq.as_bytes());
-            return true;
+            if has_mods || report_all || matches!(key, "enter" | "tab" | "backspace" | "escape") {
+                let seq = if has_mods {
+                    format!("\x1b[{};{}u", cp, mod_val)
+                } else {
+                    format!("\x1b[{}u", cp)
+                };
+                self.send_input(seq.as_bytes());
+                return true;
+            }
+            return false;
         }
 
         if let Some(key_char) = &event.keystroke.key_char {

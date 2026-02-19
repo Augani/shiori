@@ -916,6 +916,10 @@ impl TerminalState {
     }
 
     pub fn tab(&mut self) {
+        if self.cursor.col >= self.cols.saturating_sub(1) {
+            self.cursor.col = self.cols.saturating_sub(1);
+            return;
+        }
         let start = self.cursor.col + 1;
         let next_tab = self.tab_stops[start..]
             .iter()
@@ -1536,7 +1540,10 @@ impl TerminalState {
         self.mouse_mode = 0;
         self.sgr_mouse = false;
         self.focus_tracking = false;
+        self.application_cursor_keys = false;
         self.user_scrolled = false;
+        self.keyboard_mode_stack.clear();
+        self.title_stack.clear();
         self.g0_charset = Charset::Ascii;
         self.g1_charset = Charset::Ascii;
         self.active_charset = 0;
