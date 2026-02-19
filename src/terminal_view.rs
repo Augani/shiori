@@ -584,6 +584,12 @@ impl TerminalView {
     }
 
     pub fn update_viewport(&mut self, width: f32, height: f32) {
+        let min_width = TERMINAL_PADDING * 2.0 + 12.0 + self.char_width();
+        let min_height = TERMINAL_PADDING * 2.0 + self.line_height;
+        if width < min_width || height < min_height {
+            return;
+        }
+
         self.viewport_width = width;
         self.viewport_height = height;
 
