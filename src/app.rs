@@ -668,12 +668,16 @@ impl AppState {
         self.active_tab = idx;
         self.setup_overlay_check(&buffer, cx);
         self.lsp_notify_did_open(&buffer, cx);
-        if (self.zoom_level - 1.0).abs() > f32::EPSILON {
-            let font_size = 14.0 * self.zoom_level;
-            buffer.update(cx, |state, cx| {
-                state.set_font_size(font_size, cx);
-            });
-        }
+        let editor_font = self.settings.editor_font.clone();
+        let zoom = self.zoom_level;
+        buffer.update(cx, |state, cx| {
+            if editor_font != "JetBrains Mono" {
+                state.set_font_family(editor_font, cx);
+            }
+            if (zoom - 1.0).abs() > f32::EPSILON {
+                state.set_font_size(14.0 * zoom, cx);
+            }
+        });
     }
 
     fn setup_overlay_check(&self, buffer: &Entity<EditorState>, cx: &mut Context<Self>) {
@@ -1821,8 +1825,10 @@ impl AppState {
     fn new_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let working_dir = self.current_working_directory();
         let zoom = self.zoom_level;
+        let font = self.settings.terminal_font.clone();
         let terminal = cx.new(|cx| TerminalView::new(cx).with_working_directory(working_dir));
         terminal.update(cx, |t, cx| {
+            t.set_font_family(font);
             if (zoom - 1.0).abs() > f32::EPSILON {
                 t.set_font_size(13.0 * zoom);
             }
@@ -3969,7 +3975,123 @@ impl AppState {
                     )
                     .child(grid),
             )
+            .child(self.render_font_settings(cx))
             .child(self.render_lsp_settings(cx))
+    }
+
+    fn render_font_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let ide = use_ide_theme();
+        let chrome = &ide.chrome;
+        let fonts = [
+            "JetBrains Mono",
+            "Fira Code",
+            "SF Mono",
+            "Menlo",
+            "Monaco",
+            "Source Code Pro",
+            "IBM Plex Mono",
+            "Cascadia Code",
+            "Hack",
+            "Inconsolata",
+        ];
+
+        let current_editor_font = self.settings.editor_font.clone();
+        let current_terminal_font = self.settings.terminal_font.clone();
+
+        let make_font_row =
+            |label: &'static str, current: &str, is_editor: bool, cx: &mut Context<Self>| {
+                let mut row = div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.0))
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(chrome.bright)
+                            .child(label),
+                    );
+
+                let mut font_grid = div().w_full().flex().flex_wrap().gap(px(8.0));
+                for font_name in &fonts {
+                    let is_selected = current == *font_name;
+                    let fname = font_name.to_string();
+                    font_grid = font_grid.child(
+                        div()
+                            .id(ElementId::Name(
+                                format!("{}-font-{}", if is_editor { "e" } else { "t" }, fname)
+                                    .into(),
+                            ))
+                            .px(px(12.0))
+                            .py(px(6.0))
+                            .rounded(px(6.0))
+                            .cursor_pointer()
+                            .text_size(px(12.0))
+                            .font_family(SharedString::from(*font_name))
+                            .when(is_selected, |el| {
+                                el.bg(chrome.accent.opacity(0.2))
+                                    .border_1()
+                                    .border_color(chrome.accent)
+                                    .text_color(chrome.bright)
+                            })
+                            .when(!is_selected, |el| {
+                                el.bg(chrome.panel_bg)
+                                    .border_1()
+                                    .border_color(hsla(0.0, 0.0, 1.0, 0.1))
+                                    .text_color(chrome.text_secondary)
+                                    .hover(|s| s.border_color(hsla(0.0, 0.0, 1.0, 0.2)))
+                            })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if is_editor {
+                                    this.settings.editor_font = fname.clone();
+                                    for buffer in &this.buffers {
+                                        buffer.update(cx, |state, cx| {
+                                            state.set_font_family(fname.clone(), cx);
+                                        });
+                                    }
+                                } else {
+                                    this.settings.terminal_font = fname.clone();
+                                    for terminal in &this.terminals {
+                                        terminal.update(cx, |tv, _cx| {
+                                            tv.set_font_family(fname.clone());
+                                        });
+                                    }
+                                }
+                                this.settings.save();
+                                cx.notify();
+                            }))
+                            .child(*font_name),
+                    );
+                }
+                row = row.child(font_grid);
+                row
+            };
+
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(px(16.0))
+            .child(
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(chrome.text_secondary)
+                    .child("FONTS"),
+            )
+            .child(make_font_row(
+                "Editor Font",
+                &current_editor_font,
+                true,
+                cx,
+            ))
+            .child(make_font_row(
+                "Terminal Font",
+                &current_terminal_font,
+                false,
+                cx,
+            ))
     }
 
     fn render_lsp_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {

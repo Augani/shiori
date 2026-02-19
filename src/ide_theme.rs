@@ -35,16 +35,29 @@ pub struct EditorColors {
 #[derive(Clone, Debug)]
 pub struct SyntaxColors {
     pub keyword: Hsla,
+    pub keyword_control: Hsla,
     pub type_name: Hsla,
+    pub type_builtin: Hsla,
     pub function: Hsla,
+    pub function_definition: Hsla,
+    pub function_method: Hsla,
+    pub function_macro: Hsla,
     pub string: Hsla,
+    pub string_escape: Hsla,
+    pub string_regex: Hsla,
     pub number: Hsla,
     pub comment: Hsla,
+    pub comment_doc: Hsla,
     pub operator: Hsla,
     pub variable: Hsla,
+    pub variable_parameter: Hsla,
+    pub variable_builtin: Hsla,
     pub constant: Hsla,
+    pub boolean: Hsla,
     pub property: Hsla,
     pub punctuation: Hsla,
+    pub punctuation_bracket: Hsla,
+    pub punctuation_delimiter: Hsla,
     pub attribute: Hsla,
     pub namespace: Hsla,
     pub tag: Hsla,
@@ -53,6 +66,8 @@ pub struct SyntaxColors {
     pub link: Hsla,
     pub literal: Hsla,
     pub embedded: Hsla,
+    pub constructor: Hsla,
+    pub label: Hsla,
     pub default_fg: Hsla,
 }
 
@@ -126,6 +141,7 @@ pub fn all_ide_themes() -> Vec<IdeTheme> {
         nord(),
         monokai_vivid(),
         github_dark(),
+        github_light(),
         cyberpunk(),
     ]
 }
@@ -215,16 +231,29 @@ pub fn island_dark() -> IdeTheme {
         },
         syntax: SyntaxColors {
             keyword: hsla_from_hex(0xc084fc),
+            keyword_control: hsla_from_hex(0xd8b4fe),
             type_name: hsla_from_hex(0x67e8f9),
+            type_builtin: hsla_from_hex(0x22d3ee),
             function: hsla_from_hex(0x60a5fa),
+            function_definition: hsla_from_hex(0x93bbfc),
+            function_method: hsla_from_hex(0x60a5fa),
+            function_macro: hsla_from_hex(0xa78bfa),
             string: hsla_from_hex(0x86efac),
+            string_escape: hsla_from_hex(0xfca5a5),
+            string_regex: hsla_from_hex(0xf87171),
             number: hsla_from_hex(0xfbbf24),
             comment: hsla_from_hex(0x6b7280),
+            comment_doc: hsla_from_hex(0x8b95a5),
             operator: hsla_from_hex(0x94a3b8),
-            variable: hsla_from_hex(0xe2e8f0),
+            variable: hsla_from_hex(0xbdc6d4),
+            variable_parameter: hsla_from_hex(0xfda4af),
+            variable_builtin: hsla_from_hex(0xf87171),
             constant: hsla_from_hex(0xfbbf24),
+            boolean: hsla_from_hex(0xfb923c),
             property: hsla_from_hex(0x93c5fd),
             punctuation: hsla_from_hex(0x9ca3af),
+            punctuation_bracket: hsla_from_hex(0x7f8694),
+            punctuation_delimiter: hsla_from_hex(0x9ca3af),
             attribute: hsla_from_hex(0xfbbf24),
             namespace: hsla_from_hex(0x67e8f9),
             tag: hsla_from_hex(0xf87171),
@@ -233,6 +262,8 @@ pub fn island_dark() -> IdeTheme {
             link: hsla_from_hex(0x3b82f6),
             literal: hsla_from_hex(0x86efac),
             embedded: hsla_from_hex(0x9ca3af),
+            constructor: hsla_from_hex(0x67e8f9),
+            label: hsla_from_hex(0xfbbf24),
             default_fg: hsla_from_hex(0xe2e8f0),
         },
         terminal: TerminalColors {
@@ -306,16 +337,29 @@ pub fn dracula() -> IdeTheme {
         },
         syntax: SyntaxColors {
             keyword: hsla_from_hex(0xff79c6),
+            keyword_control: hsla_from_hex(0xff79c6),
             type_name: hsla_from_hex(0x8be9fd),
+            type_builtin: hsla_from_hex(0x8be9fd),
             function: hsla_from_hex(0x50fa7b),
+            function_definition: hsla_from_hex(0x50fa7b),
+            function_method: hsla_from_hex(0x50fa7b),
+            function_macro: hsla_from_hex(0x50fa7b),
             string: hsla_from_hex(0xf1fa8c),
+            string_escape: hsla_from_hex(0xff79c6),
+            string_regex: hsla_from_hex(0xff5555),
             number: hsla_from_hex(0xbd93f9),
             comment: hsla_from_hex(0x6272a4),
+            comment_doc: hsla_from_hex(0x7384b0),
             operator: hsla_from_hex(0xff79c6),
             variable: hsla_from_hex(0xf8f8f2),
+            variable_parameter: hsla_from_hex(0xffb86c),
+            variable_builtin: hsla_from_hex(0xbd93f9),
             constant: hsla_from_hex(0xbd93f9),
+            boolean: hsla_from_hex(0xbd93f9),
             property: hsla_from_hex(0x66d9ef),
             punctuation: hsla_from_hex(0xf8f8f2),
+            punctuation_bracket: hsla_from_hex(0xf8f8f2),
+            punctuation_delimiter: hsla_from_hex(0xf8f8f2),
             attribute: hsla_from_hex(0x50fa7b),
             namespace: hsla_from_hex(0x8be9fd),
             tag: hsla_from_hex(0xff79c6),
@@ -324,6 +368,8 @@ pub fn dracula() -> IdeTheme {
             link: hsla_from_hex(0x8be9fd),
             literal: hsla_from_hex(0xf1fa8c),
             embedded: hsla_from_hex(0xf8f8f2),
+            constructor: hsla_from_hex(0x8be9fd),
+            label: hsla_from_hex(0xff79c6),
             default_fg: hsla_from_hex(0xf8f8f2),
         },
         terminal: TerminalColors {
@@ -397,16 +443,29 @@ pub fn nord() -> IdeTheme {
         },
         syntax: SyntaxColors {
             keyword: hsla_from_hex(0x81a1c1),
+            keyword_control: hsla_from_hex(0x5e81ac),
             type_name: hsla_from_hex(0x8fbcbb),
+            type_builtin: hsla_from_hex(0x8fbcbb),
             function: hsla_from_hex(0x88c0d0),
+            function_definition: hsla_from_hex(0x88c0d0),
+            function_method: hsla_from_hex(0x88c0d0),
+            function_macro: hsla_from_hex(0x5e81ac),
             string: hsla_from_hex(0xa3be8c),
+            string_escape: hsla_from_hex(0xebcb8b),
+            string_regex: hsla_from_hex(0xebcb8b),
             number: hsla_from_hex(0xb48ead),
             comment: hsla_from_hex(0x616e88),
+            comment_doc: hsla_from_hex(0x7b8da0),
             operator: hsla_from_hex(0x81a1c1),
             variable: hsla_from_hex(0xd8dee9),
+            variable_parameter: hsla_from_hex(0xd08770),
+            variable_builtin: hsla_from_hex(0xbf616a),
             constant: hsla_from_hex(0xb48ead),
+            boolean: hsla_from_hex(0xd08770),
             property: hsla_from_hex(0x88c0d0),
             punctuation: hsla_from_hex(0xeceff4),
+            punctuation_bracket: hsla_from_hex(0xd8dee9),
+            punctuation_delimiter: hsla_from_hex(0xeceff4),
             attribute: hsla_from_hex(0x8fbcbb),
             namespace: hsla_from_hex(0x8fbcbb),
             tag: hsla_from_hex(0x81a1c1),
@@ -415,6 +474,8 @@ pub fn nord() -> IdeTheme {
             link: hsla_from_hex(0x88c0d0),
             literal: hsla_from_hex(0xa3be8c),
             embedded: hsla_from_hex(0xd8dee9),
+            constructor: hsla_from_hex(0x8fbcbb),
+            label: hsla_from_hex(0xd08770),
             default_fg: hsla_from_hex(0xd8dee9),
         },
         terminal: TerminalColors {
@@ -488,16 +549,29 @@ pub fn monokai_vivid() -> IdeTheme {
         },
         syntax: SyntaxColors {
             keyword: hsla_from_hex(0xf92672),
+            keyword_control: hsla_from_hex(0xf92672),
             type_name: hsla_from_hex(0x66d9ef),
+            type_builtin: hsla_from_hex(0x66d9ef),
             function: hsla_from_hex(0xa6e22e),
+            function_definition: hsla_from_hex(0xa6e22e),
+            function_method: hsla_from_hex(0xa6e22e),
+            function_macro: hsla_from_hex(0xa6e22e),
             string: hsla_from_hex(0xe6db74),
+            string_escape: hsla_from_hex(0xae81ff),
+            string_regex: hsla_from_hex(0xf92672),
             number: hsla_from_hex(0xae81ff),
             comment: hsla_from_hex(0x75715e),
+            comment_doc: hsla_from_hex(0x8a856e),
             operator: hsla_from_hex(0xf92672),
             variable: hsla_from_hex(0xf8f8f0),
+            variable_parameter: hsla_from_hex(0xfd971f),
+            variable_builtin: hsla_from_hex(0xfd971f),
             constant: hsla_from_hex(0xae81ff),
+            boolean: hsla_from_hex(0xae81ff),
             property: hsla_from_hex(0x66d9ef),
             punctuation: hsla_from_hex(0xf8f8f2),
+            punctuation_bracket: hsla_from_hex(0xf8f8f2),
+            punctuation_delimiter: hsla_from_hex(0xf8f8f2),
             attribute: hsla_from_hex(0xa6e22e),
             namespace: hsla_from_hex(0x66d9ef),
             tag: hsla_from_hex(0xf92672),
@@ -506,6 +580,8 @@ pub fn monokai_vivid() -> IdeTheme {
             link: hsla_from_hex(0x66d9ef),
             literal: hsla_from_hex(0xe6db74),
             embedded: hsla_from_hex(0xf8f8f2),
+            constructor: hsla_from_hex(0x66d9ef),
+            label: hsla_from_hex(0xfd971f),
             default_fg: hsla_from_hex(0xf8f8f0),
         },
         terminal: TerminalColors {
@@ -579,16 +655,29 @@ pub fn github_dark() -> IdeTheme {
         },
         syntax: SyntaxColors {
             keyword: hsla_from_hex(0xff7b72),
+            keyword_control: hsla_from_hex(0xff7b72),
             type_name: hsla_from_hex(0x79c0ff),
+            type_builtin: hsla_from_hex(0x79c0ff),
             function: hsla_from_hex(0xd2a8ff),
+            function_definition: hsla_from_hex(0xd2a8ff),
+            function_method: hsla_from_hex(0xd2a8ff),
+            function_macro: hsla_from_hex(0xd2a8ff),
             string: hsla_from_hex(0xa5d6ff),
+            string_escape: hsla_from_hex(0x79c0ff),
+            string_regex: hsla_from_hex(0xff7b72),
             number: hsla_from_hex(0x79c0ff),
             comment: hsla_from_hex(0x8b949e),
+            comment_doc: hsla_from_hex(0x9ba5ae),
             operator: hsla_from_hex(0xff7b72),
             variable: hsla_from_hex(0xffa657),
+            variable_parameter: hsla_from_hex(0xffa657),
+            variable_builtin: hsla_from_hex(0xff7b72),
             constant: hsla_from_hex(0x79c0ff),
+            boolean: hsla_from_hex(0x79c0ff),
             property: hsla_from_hex(0x7ee787),
             punctuation: hsla_from_hex(0xc9d1d9),
+            punctuation_bracket: hsla_from_hex(0xc9d1d9),
+            punctuation_delimiter: hsla_from_hex(0xc9d1d9),
             attribute: hsla_from_hex(0x7ee787),
             namespace: hsla_from_hex(0xffa657),
             tag: hsla_from_hex(0x7ee787),
@@ -597,6 +686,8 @@ pub fn github_dark() -> IdeTheme {
             link: hsla_from_hex(0x58a6ff),
             literal: hsla_from_hex(0xa5d6ff),
             embedded: hsla_from_hex(0xc9d1d9),
+            constructor: hsla_from_hex(0x79c0ff),
+            label: hsla_from_hex(0x7ee787),
             default_fg: hsla_from_hex(0xc9d1d9),
         },
         terminal: TerminalColors {
@@ -670,16 +761,29 @@ pub fn cyberpunk() -> IdeTheme {
         },
         syntax: SyntaxColors {
             keyword: hsla_from_hex(0xfcee0a),
+            keyword_control: hsla_from_hex(0xfcee0a),
             type_name: hsla_from_hex(0x00d4ff),
+            type_builtin: hsla_from_hex(0x00d4ff),
             function: hsla_from_hex(0xff2e97),
+            function_definition: hsla_from_hex(0xff2e97),
+            function_method: hsla_from_hex(0xff2e97),
+            function_macro: hsla_from_hex(0xd557ff),
             string: hsla_from_hex(0x00ff9f),
+            string_escape: hsla_from_hex(0xfcee0a),
+            string_regex: hsla_from_hex(0xff2e97),
             number: hsla_from_hex(0xfcee0a),
             comment: hsla_from_hex(0x1e3a5f),
+            comment_doc: hsla_from_hex(0x2d5580),
             operator: hsla_from_hex(0xff2e97),
             variable: hsla_from_hex(0x8badc9),
+            variable_parameter: hsla_from_hex(0xd557ff),
+            variable_builtin: hsla_from_hex(0xff2e97),
             constant: hsla_from_hex(0xfcee0a),
+            boolean: hsla_from_hex(0xff2e97),
             property: hsla_from_hex(0x00d4ff),
             punctuation: hsla_from_hex(0x8badc9),
+            punctuation_bracket: hsla_from_hex(0x5e8ba0),
+            punctuation_delimiter: hsla_from_hex(0x8badc9),
             attribute: hsla_from_hex(0x00ff9f),
             namespace: hsla_from_hex(0x00d4ff),
             tag: hsla_from_hex(0xff2e97),
@@ -688,6 +792,8 @@ pub fn cyberpunk() -> IdeTheme {
             link: hsla_from_hex(0x00d4ff),
             literal: hsla_from_hex(0x00ff9f),
             embedded: hsla_from_hex(0x8badc9),
+            constructor: hsla_from_hex(0x00d4ff),
+            label: hsla_from_hex(0xfcee0a),
             default_fg: hsla_from_hex(0x8badc9),
         },
         terminal: TerminalColors {
@@ -736,74 +842,201 @@ pub fn cyberpunk() -> IdeTheme {
     }
 }
 
+pub fn github_light() -> IdeTheme {
+    IdeTheme {
+        name: "GitHub Light",
+        description: "GitHub's clean light theme",
+        editor: EditorColors {
+            cursor: hsla_from_hex(0x0969da),
+            selection: hsla(0.583, 0.60, 0.60, 0.25),
+            line_number: hsla_from_hex(0x8c959f),
+            line_number_active: hsla_from_hex(0x24292f),
+            gutter_bg: hsla_from_hex(0xffffff),
+            search_match: hsla(0.114, 0.80, 0.55, 0.30),
+            search_match_active: hsla(0.114, 0.80, 0.55, 0.50),
+            current_line: hsla(0.15, 0.15, 0.93, 1.0),
+            bracket_match: hsla(0.583, 0.50, 0.70, 0.50),
+            word_highlight: hsla(0.0, 0.0, 0.0, 0.07),
+            indent_guide: hsla(0.0, 0.0, 0.0, 0.08),
+            indent_guide_active: hsla(0.0, 0.0, 0.0, 0.18),
+            fold_marker: hsla_from_hex(0x8c959f),
+            diagnostic_error: hsla_from_hex(0xcf222e),
+            diagnostic_warning: hsla_from_hex(0x9a6700),
+            diagnostic_info: hsla_from_hex(0x0969da),
+            diagnostic_hint: hsla_from_hex(0x8c959f),
+        },
+        syntax: SyntaxColors {
+            keyword: hsla_from_hex(0xcf222e),
+            keyword_control: hsla_from_hex(0xcf222e),
+            type_name: hsla_from_hex(0x0550ae),
+            type_builtin: hsla_from_hex(0x0550ae),
+            function: hsla_from_hex(0x8250df),
+            function_definition: hsla_from_hex(0x8250df),
+            function_method: hsla_from_hex(0x8250df),
+            function_macro: hsla_from_hex(0x8250df),
+            string: hsla_from_hex(0x0a3069),
+            string_escape: hsla_from_hex(0x0550ae),
+            string_regex: hsla_from_hex(0x0a3069),
+            number: hsla_from_hex(0x0550ae),
+            comment: hsla_from_hex(0x6e7781),
+            comment_doc: hsla_from_hex(0x57606a),
+            operator: hsla_from_hex(0x24292f),
+            variable: hsla_from_hex(0x24292f),
+            variable_parameter: hsla_from_hex(0x953800),
+            variable_builtin: hsla_from_hex(0x0550ae),
+            constant: hsla_from_hex(0x0550ae),
+            boolean: hsla_from_hex(0x0550ae),
+            property: hsla_from_hex(0x0550ae),
+            punctuation: hsla_from_hex(0x24292f),
+            punctuation_bracket: hsla_from_hex(0x24292f),
+            punctuation_delimiter: hsla_from_hex(0x24292f),
+            attribute: hsla_from_hex(0x8250df),
+            namespace: hsla_from_hex(0xcf222e),
+            tag: hsla_from_hex(0x116329),
+            heading: hsla_from_hex(0x0550ae),
+            emphasis: hsla_from_hex(0x24292f),
+            link: hsla_from_hex(0x0969da),
+            literal: hsla_from_hex(0x0550ae),
+            embedded: hsla_from_hex(0x24292f),
+            constructor: hsla_from_hex(0x8250df),
+            label: hsla_from_hex(0x0550ae),
+            default_fg: hsla_from_hex(0x24292f),
+        },
+        terminal: TerminalColors {
+            palette: [
+                rgba_from_hex(0x24292f),
+                rgba_from_hex(0xcf222e),
+                rgba_from_hex(0x116329),
+                rgba_from_hex(0x9a6700),
+                rgba_from_hex(0x0969da),
+                rgba_from_hex(0x8250df),
+                rgba_from_hex(0x1b7c83),
+                rgba_from_hex(0x6e7781),
+                rgba_from_hex(0x57606a),
+                rgba_from_hex(0xa40e26),
+                rgba_from_hex(0x1a7f37),
+                rgba_from_hex(0x7d4e00),
+                rgba_from_hex(0x218bff),
+                rgba_from_hex(0x8250df),
+                rgba_from_hex(0x3192aa),
+                rgba_from_hex(0x8c959f),
+            ],
+            fg: rgba_from_hex(0x24292f),
+            bg: Rgba {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 0.0,
+            },
+        },
+        chrome: ChromeColors {
+            bg: hsla_from_hex(0xf6f8fa),
+            header_border: hsla(0.0, 0.0, 0.0, 0.10),
+            accent: hsla_from_hex(0x0969da),
+            dim: hsla_from_hex(0xd0d7de),
+            bright: hsla_from_hex(0x24292f),
+            panel_bg: hsla_from_hex(0xf6f8fa),
+            editor_bg: hsla_from_hex(0xffffff),
+            text_secondary: hsla_from_hex(0x57606a),
+            diff_add_bg: hsla(0.33, 0.6, 0.5, 0.15),
+            diff_add_text: hsla_from_hex(0x116329),
+            diff_del_bg: hsla(0.0, 0.6, 0.5, 0.15),
+            diff_del_text: hsla_from_hex(0xcf222e),
+            review_comment_bg: hsla_from_hex(0xfff8c5),
+            review_comment_indicator: hsla_from_hex(0x9a6700),
+        },
+    }
+}
+
 impl SyntaxColors {
     pub fn color_for_capture(&self, capture_name: &str) -> Hsla {
         match capture_name {
             "keyword"
-            | "keyword.control"
             | "keyword.operator"
             | "keyword.function"
             | "keyword.return"
-            | "keyword.control.repeat"
-            | "keyword.control.conditional"
-            | "keyword.control.import"
-            | "keyword.control.exception"
             | "keyword.directive"
             | "keyword.modifier"
             | "keyword.type"
             | "keyword.coroutine"
             | "keyword.storage.type"
             | "keyword.storage.modifier"
+            | "keyword.import"
+            | "keyword.conditional"
+            | "keyword.exception"
+            | "keyword.repeat" => self.keyword,
+
+            "keyword.control"
+            | "keyword.control.repeat"
+            | "keyword.control.conditional"
+            | "keyword.control.import"
+            | "keyword.control.exception"
             | "conditional"
             | "repeat"
             | "include"
-            | "exception" => self.keyword,
+            | "exception"
+            | "preproc" => self.keyword_control,
 
-            "type" | "type.builtin" | "type.definition" | "type.qualifier" | "storageclass"
-            | "structure" => self.type_name,
+            "type" | "type.definition" | "type.qualifier" | "storageclass" | "structure"
+            | "type.interface" => self.type_name,
 
-            "function" | "function.call" | "function.method" | "function.builtin"
-            | "function.macro" | "method" | "method.call" | "constructor" => self.function,
+            "type.builtin" => self.type_builtin,
+
+            "function" | "function.call" => self.function,
+            "function.definition" | "function.special.definition" => self.function_definition,
+            "function.method" | "function.method.builtin" | "method" | "method.call" => {
+                self.function_method
+            }
+            "function.macro" | "function.builtin" | "function.special" => self.function_macro,
+            "constructor" => self.constructor,
 
             "string"
             | "string.special"
-            | "string.escape"
-            | "string.regex"
             | "string.special.url"
             | "string.special.path"
-            | "character"
-            | "character.special" => self.string,
+            | "string.special.key"
+            | "string.special.symbol"
+            | "string.special.regex"
+            | "character" => self.string,
+            "string.escape" | "character.special" | "escape" | "constant.character" => {
+                self.string_escape
+            }
+            "string.regex" => self.string_regex,
 
-            "number" | "float" | "constant.numeric" => self.number,
+            "number" | "number.float" | "float" | "constant.numeric" => self.number,
 
-            "comment" | "comment.line" | "comment.block" | "comment.documentation" => self.comment,
+            "comment" | "comment.line" | "comment.block" | "comment.unused" => self.comment,
+            "comment.documentation" | "comment.doc" => self.comment_doc,
 
-            "operator" => self.operator,
+            "operator" | "delimiter" => self.operator,
 
-            "variable" | "variable.parameter" | "variable.builtin" | "variable.member"
-            | "parameter" | "field" => self.variable,
+            "variable" | "variable.member" | "field" => self.variable,
+            "variable.parameter" | "parameter" => self.variable_parameter,
+            "variable.builtin" => self.variable_builtin,
 
-            "constant" | "constant.builtin" | "constant.macro" | "boolean" | "define"
-            | "symbol" => self.constant,
+            "constant" | "constant.builtin" | "constant.macro" | "define" | "symbol" => {
+                self.constant
+            }
+            "boolean" => self.boolean,
 
             "property" | "property.definition" => self.property,
 
-            "punctuation"
-            | "punctuation.bracket"
-            | "punctuation.delimiter"
-            | "punctuation.special" => self.punctuation,
+            "punctuation" | "punctuation.special" => self.punctuation,
+            "punctuation.bracket" => self.punctuation_bracket,
+            "punctuation.delimiter" => self.punctuation_delimiter,
 
-            "attribute" | "label" | "annotation" | "decorator" => self.attribute,
+            "attribute" | "annotation" | "decorator" => self.attribute,
+            "label" => self.label,
 
-            "namespace" | "module" => self.namespace,
+            "namespace" | "module" | "module.builtin" => self.namespace,
 
-            "tag" | "tag.builtin" | "tag.delimiter" | "tag.attribute" => self.tag,
+            "tag" | "tag.builtin" | "tag.delimiter" | "tag.attribute" | "tag.error" => self.tag,
 
             "text.title" | "markup.heading" | "text.strong" | "markup.bold" => self.heading,
 
             "text.emphasis" | "markup.italic" => self.emphasis,
 
-            "text.uri" | "markup.link.url" | "markup.link" => self.link,
+            "text.uri" | "markup.link.url" | "markup.link" | "text.reference" => self.link,
 
             "text.literal" | "markup.raw" => self.literal,
 

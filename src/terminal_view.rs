@@ -53,12 +53,19 @@ pub struct TerminalView {
     has_blinking_cells: bool,
     pub font_size: f32,
     pub line_height: f32,
+    pub font_family: String,
 }
 
 impl TerminalView {
     pub fn set_font_size(&mut self, size: f32) {
         self.font_size = size;
         self.line_height = (size * 1.385).round();
+        self.last_resize = None;
+    }
+
+    pub fn set_font_family(&mut self, family: String) {
+        self.font_family = family;
+        self.char_width = 0.0;
         self.last_resize = None;
     }
 
@@ -111,6 +118,7 @@ impl TerminalView {
             has_blinking_cells: false,
             font_size: 13.0,
             line_height: LINE_HEIGHT,
+            font_family: "JetBrains Mono".to_string(),
         }
     }
 
@@ -159,27 +167,37 @@ impl TerminalView {
         self._focus_subscriptions = vec![focus_in_sub, focus_out_sub];
 
         self.polling_started = true;
-        cx.spawn_in(window, async move |this, cx| loop {
-            Timer::after(Duration::from_millis(16)).await;
+        cx.spawn_in(window, async move |this, cx| {
+            let mut idle_ticks: u32 = 0;
+            loop {
+                Timer::after(Duration::from_millis(16)).await;
 
-            let should_continue = this
-                .update(cx, |view, cx| {
-                    if !view.is_running() {
-                        view.polling_started = false;
-                        view.state.set_mouse_mode(1000, false);
-                        return false;
-                    }
-                    view.flush_pending_resize();
-                    let had_output = view.process_output();
-                    if had_output {
-                        cx.notify();
-                    }
-                    true
-                })
-                .unwrap_or(false);
+                let should_continue = this
+                    .update(cx, |view, cx| {
+                        if !view.is_running() {
+                            view.polling_started = false;
+                            view.state.set_mouse_mode(1000, false);
+                            return false;
+                        }
+                        view.flush_pending_resize();
+                        let had_output = view.process_output();
+                        if had_output {
+                            idle_ticks = 0;
+                            cx.notify();
+                        } else {
+                            idle_ticks += 1;
+                            if idle_ticks >= 33 {
+                                idle_ticks = 0;
+                                cx.notify();
+                            }
+                        }
+                        true
+                    })
+                    .unwrap_or(false);
 
-            if !should_continue {
-                break;
+                if !should_continue {
+                    break;
+                }
             }
         })
         .detach();
@@ -381,7 +399,7 @@ impl TerminalView {
             return;
         }
         let font = Font {
-            family: SharedString::from("JetBrains Mono"),
+            family: SharedString::from(self.font_family.clone()),
             features: Default::default(),
             fallbacks: None,
             weight: FontWeight::NORMAL,
@@ -678,7 +696,7 @@ impl TerminalView {
         &mut self,
         event: &ScrollWheelEvent,
         _window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
         let delta_y = match event.delta {
             gpui::ScrollDelta::Lines(lines) => lines.y,
@@ -703,6 +721,7 @@ impl TerminalView {
         } else {
             self.scroll_down(lines);
         }
+        cx.notify();
     }
 
     pub fn handle_mouse_down(
@@ -1243,7 +1262,7 @@ impl TerminalView {
             .h(px(self.line_height))
             .w_full()
             .flex()
-            .font_family("JetBrains Mono")
+            .font_family(self.font_family.clone())
             .text_size(px(self.font_size))
             .children(spans)
     }
@@ -1478,27 +1497,37 @@ impl Render for TerminalView {
 
         if self.is_running() && !self.polling_started {
             self.polling_started = true;
-            cx.spawn_in(window, async move |this, cx| loop {
-                Timer::after(Duration::from_millis(16)).await;
+            cx.spawn_in(window, async move |this, cx| {
+                let mut idle_ticks: u32 = 0;
+                loop {
+                    Timer::after(Duration::from_millis(16)).await;
 
-                let should_continue = this
-                    .update(cx, |view, cx| {
-                        if !view.is_running() {
-                            view.polling_started = false;
-                            view.state.set_mouse_mode(1000, false);
-                            return false;
-                        }
-                        view.flush_pending_resize();
-                        let had_output = view.process_output();
-                        if had_output {
-                            cx.notify();
-                        }
-                        true
-                    })
-                    .unwrap_or(false);
+                    let should_continue = this
+                        .update(cx, |view, cx| {
+                            if !view.is_running() {
+                                view.polling_started = false;
+                                view.state.set_mouse_mode(1000, false);
+                                return false;
+                            }
+                            view.flush_pending_resize();
+                            let had_output = view.process_output();
+                            if had_output {
+                                idle_ticks = 0;
+                                cx.notify();
+                            } else {
+                                idle_ticks += 1;
+                                if idle_ticks >= 33 {
+                                    idle_ticks = 0;
+                                    cx.notify();
+                                }
+                            }
+                            true
+                        })
+                        .unwrap_or(false);
 
-                if !should_continue {
-                    break;
+                    if !should_continue {
+                        break;
+                    }
                 }
             })
             .detach();

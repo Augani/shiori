@@ -24,7 +24,7 @@ pub fn compute_line_highlights(content: &str, language: Language) -> Vec<Vec<Hig
         }
     };
 
-    let query = match Query::new(&ts_lang, query_src) {
+    let query = match Query::new(&ts_lang, &query_src) {
         Ok(q) => q,
         Err(_) => {
             return vec![Vec::new(); content.lines().count().max(1)];

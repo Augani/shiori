@@ -8,8 +8,16 @@ pub struct ShioriSettings {
     pub lsp_enabled: bool,
     #[serde(default = "default_theme")]
     pub theme: String,
+    #[serde(default = "default_font")]
+    pub terminal_font: String,
+    #[serde(default = "default_font")]
+    pub editor_font: String,
     #[serde(default)]
     pub language_servers: HashMap<String, LanguageServerConfig>,
+}
+
+fn default_font() -> String {
+    "JetBrains Mono".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,6 +42,8 @@ impl Default for ShioriSettings {
         Self {
             lsp_enabled: false,
             theme: default_theme(),
+            terminal_font: default_font(),
+            editor_font: default_font(),
             language_servers: default_language_servers(),
         }
     }
