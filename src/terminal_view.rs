@@ -1091,8 +1091,9 @@ impl TerminalView {
                     self.is_selecting = false;
                 }
                 _ => {
-                    self.selection_start = Some((line, col));
-                    self.selection_end = Some((line, col));
+                    let snapped_col = self.snap_to_primary_cell(line, col);
+                    self.selection_start = Some((line, snapped_col));
+                    self.selection_end = Some((line, snapped_col));
                     self.is_selecting = true;
                 }
             }
@@ -1130,41 +1131,71 @@ impl TerminalView {
         None
     }
 
+    fn snap_to_primary_cell(&self, line_idx: usize, col: usize) -> usize {
+        if let Some(line) = self.state.line(line_idx) {
+            if col < line.cells.len() && line.cells[col].width == 0 {
+                return (0..col)
+                    .rev()
+                    .find(|&c| line.cells[c].width != 0)
+                    .unwrap_or(col);
+            }
+        }
+        col
+    }
+
     fn word_bounds_at(&self, line_idx: usize, col: usize) -> (usize, usize) {
         let line = match self.state.line(line_idx) {
             Some(l) => l,
             None => return (col, col),
         };
 
-        let chars: Vec<char> = line.cells.iter().map(|c| c.char).collect();
-        if col >= chars.len() {
+        if col >= line.cells.len() {
             return (col, col);
         }
 
-        let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
-        let target_is_word = is_word_char(chars[col]);
+        let actual_col = if line.cells[col].width == 0 {
+            (0..col)
+                .rev()
+                .find(|&c| line.cells[c].width != 0)
+                .unwrap_or(col)
+        } else {
+            col
+        };
 
-        let mut start = col;
+        let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
+        let target_char = line.cells[actual_col].char;
+        let target_is_word = is_word_char(target_char);
+
+        let mut start = actual_col;
         while start > 0 {
-            let prev = chars[start - 1];
+            let prev = start - 1;
+            if line.cells[prev].width == 0 {
+                start = prev;
+                continue;
+            }
+            let prev_char = line.cells[prev].char;
             if target_is_word {
-                if !is_word_char(prev) {
+                if !is_word_char(prev_char) {
                     break;
                 }
-            } else if prev.is_whitespace() != chars[col].is_whitespace() {
+            } else if prev_char.is_whitespace() != target_char.is_whitespace() {
                 break;
             }
-            start -= 1;
+            start = prev;
         }
 
-        let mut end = col;
-        while end < chars.len() {
-            let curr = chars[end];
+        let mut end = actual_col;
+        while end < line.cells.len() {
+            let cell = &line.cells[end];
+            if cell.width == 0 {
+                end += 1;
+                continue;
+            }
             if target_is_word {
-                if !is_word_char(curr) {
+                if !is_word_char(cell.char) {
                     break;
                 }
-            } else if curr.is_whitespace() != chars[col].is_whitespace() {
+            } else if cell.char.is_whitespace() != target_char.is_whitespace() {
                 break;
             }
             end += 1;
@@ -1191,7 +1222,8 @@ impl TerminalView {
         if dragging {
             self.is_selecting = true;
             let (line, col) = self.position_from_mouse(event.position);
-            self.selection_end = Some((line, col));
+            let snapped_col = self.snap_to_primary_cell(line, col);
+            self.selection_end = Some((line, snapped_col));
             cx.notify();
         }
     }
@@ -1312,28 +1344,34 @@ impl TerminalView {
 
         for line_idx in start_line..=end_line {
             if let Some(line) = self.state.line(line_idx) {
-                let line_text: String = line.cells.iter().map(|c| c.char).collect();
-                let line_text = line_text.trim_end();
-
                 let col_start = if line_idx == start_line { start_col } else { 0 };
                 let col_end = if line_idx == end_line {
-                    end_col.min(line_text.len())
+                    end_col.min(line.cells.len())
                 } else {
-                    line_text.len()
+                    line.cells.len()
                 };
 
-                if col_start < line_text.len() {
-                    let chars: Vec<char> = line_text.chars().collect();
-                    let selected: String =
-                        chars[col_start..col_end.min(chars.len())].iter().collect();
-                    result.push_str(&selected);
+                for col in col_start..col_end {
+                    if let Some(cell) = line.cells.get(col) {
+                        if cell.width == 0 {
+                            continue;
+                        }
+                        result.push(cell.char);
+                    }
                 }
 
                 if line_idx < end_line {
-                    result.push('\n');
+                    let trimmed = result.trim_end().len();
+                    result.truncate(trimmed);
+                    if !line.wrapped {
+                        result.push('\n');
+                    }
                 }
             }
         }
+
+        let trimmed = result.trim_end().len();
+        result.truncate(trimmed);
 
         if result.is_empty() {
             None
