@@ -401,6 +401,55 @@ impl TerminalView {
                 let response = format!("\x1bP>|Shiori {}\x1b\\", env!("CARGO_PKG_VERSION"));
                 self.send_input(response.as_bytes());
             }
+            ParsedSegment::QueryForegroundColor => {
+                let fg = self.parser.foreground_color();
+                let response = format!(
+                    "\x1b]10;rgb:{:02x}/{:02x}/{:02x}\x1b\\",
+                    (fg.r * 255.0) as u8,
+                    (fg.g * 255.0) as u8,
+                    (fg.b * 255.0) as u8,
+                );
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::QueryBackgroundColor => {
+                let bg = self.parser.background_color();
+                let response = format!(
+                    "\x1b]11;rgb:{:02x}/{:02x}/{:02x}\x1b\\",
+                    (bg.r * 255.0) as u8,
+                    (bg.g * 255.0) as u8,
+                    (bg.b * 255.0) as u8,
+                );
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::QueryCursorColor => {
+                let fg = self.parser.foreground_color();
+                let response = format!(
+                    "\x1b]12;rgb:{:02x}/{:02x}/{:02x}\x1b\\",
+                    (fg.r * 255.0) as u8,
+                    (fg.g * 255.0) as u8,
+                    (fg.b * 255.0) as u8,
+                );
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::QueryPaletteColor(idx) => {
+                let color = self.parser.palette_color(idx);
+                let response = format!(
+                    "\x1b]4;{};rgb:{:02x}/{:02x}/{:02x}\x1b\\",
+                    idx,
+                    (color.r * 255.0) as u8,
+                    (color.g * 255.0) as u8,
+                    (color.b * 255.0) as u8,
+                );
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::SetForegroundColor(_, _, _) => {}
+            ParsedSegment::SetBackgroundColor(_, _, _) => {}
+            ParsedSegment::SetCursorColor(_, _, _) => {}
+            ParsedSegment::SetPaletteColor(_, _, _, _) => {}
+            ParsedSegment::ResetPalette => {}
+            ParsedSegment::ResetForegroundColor => {}
+            ParsedSegment::ResetBackgroundColor => {}
+            ParsedSegment::ResetCursorColor => {}
         }
     }
 

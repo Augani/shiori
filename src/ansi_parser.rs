@@ -212,6 +212,18 @@ pub enum ParsedSegment {
     ScreenAlignmentTest,
     RequestMode(u16),
     RequestVersion,
+    QueryForegroundColor,
+    QueryBackgroundColor,
+    QueryCursorColor,
+    QueryPaletteColor(u8),
+    SetForegroundColor(u8, u8, u8),
+    SetBackgroundColor(u8, u8, u8),
+    SetCursorColor(u8, u8, u8),
+    SetPaletteColor(u8, u8, u8, u8),
+    ResetPalette,
+    ResetForegroundColor,
+    ResetBackgroundColor,
+    ResetCursorColor,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -888,8 +900,43 @@ impl AnsiParser {
         }));
     }
 
+    pub fn foreground_color(&self) -> Rgba {
+        self.default_fg
+    }
+
+    pub fn background_color(&self) -> Rgba {
+        self.default_bg
+    }
+
+    pub fn palette_color(&self, idx: u8) -> Rgba {
+        self.color_from_256_themed(idx as usize)
+    }
+
     fn execute_osc(&mut self, segments: &mut Vec<ParsedSegment>) {
         let osc = String::from_utf8_lossy(&self.osc_string).into_owned();
+        match osc.as_str() {
+            "104" => {
+                segments.push(ParsedSegment::ResetPalette);
+                self.osc_string.clear();
+                return;
+            }
+            "110" => {
+                segments.push(ParsedSegment::ResetForegroundColor);
+                self.osc_string.clear();
+                return;
+            }
+            "111" => {
+                segments.push(ParsedSegment::ResetBackgroundColor);
+                self.osc_string.clear();
+                return;
+            }
+            "112" => {
+                segments.push(ParsedSegment::ResetCursorColor);
+                self.osc_string.clear();
+                return;
+            }
+            _ => {}
+        }
         if let Some(idx) = osc.find(';') {
             let cmd = &osc[..idx];
             let arg = &osc[idx + 1..];
@@ -942,6 +989,40 @@ impl AnsiParser {
                         let title = parts[1].to_string();
                         let body = parts.get(2).map(|s| s.to_string());
                         segments.push(ParsedSegment::Notification(title, body));
+                    }
+                }
+                "4" => {
+                    if let Some(semi) = arg.find(';') {
+                        let idx_str = &arg[..semi];
+                        let color_str = &arg[semi + 1..];
+                        if let Ok(idx) = idx_str.parse::<u8>() {
+                            if color_str == "?" {
+                                segments.push(ParsedSegment::QueryPaletteColor(idx));
+                            } else if let Some((r, g, b)) = parse_x11_color(color_str) {
+                                segments.push(ParsedSegment::SetPaletteColor(idx, r, g, b));
+                            }
+                        }
+                    }
+                }
+                "10" => {
+                    if arg == "?" {
+                        segments.push(ParsedSegment::QueryForegroundColor);
+                    } else if let Some((r, g, b)) = parse_x11_color(arg) {
+                        segments.push(ParsedSegment::SetForegroundColor(r, g, b));
+                    }
+                }
+                "11" => {
+                    if arg == "?" {
+                        segments.push(ParsedSegment::QueryBackgroundColor);
+                    } else if let Some((r, g, b)) = parse_x11_color(arg) {
+                        segments.push(ParsedSegment::SetBackgroundColor(r, g, b));
+                    }
+                }
+                "12" => {
+                    if arg == "?" {
+                        segments.push(ParsedSegment::QueryCursorColor);
+                    } else if let Some((r, g, b)) = parse_x11_color(arg) {
+                        segments.push(ParsedSegment::SetCursorColor(r, g, b));
                     }
                 }
                 "1337" => {
@@ -1387,6 +1468,27 @@ impl AnsiParser {
             _ => None,
         }
     }
+}
+
+fn parse_x11_color(s: &str) -> Option<(u8, u8, u8)> {
+    if let Some(hex) = s.strip_prefix("rgb:") {
+        let parts: Vec<&str> = hex.split('/').collect();
+        if parts.len() == 3 {
+            let r = u8::from_str_radix(&parts[0][..2.min(parts[0].len())], 16).ok()?;
+            let g = u8::from_str_radix(&parts[1][..2.min(parts[1].len())], 16).ok()?;
+            let b = u8::from_str_radix(&parts[2][..2.min(parts[2].len())], 16).ok()?;
+            return Some((r, g, b));
+        }
+    }
+    if let Some(hex) = s.strip_prefix('#') {
+        if hex.len() == 6 {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            return Some((r, g, b));
+        }
+    }
+    None
 }
 
 fn parse_iterm2_dimension(val: &str) -> ImageDimension {
