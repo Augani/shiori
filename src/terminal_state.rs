@@ -956,6 +956,47 @@ impl TerminalState {
         self.cursor.col = 0;
     }
 
+    pub fn vertical_position_absolute(&mut self, row: usize) {
+        self.cursor.row = row.min(self.rows.saturating_sub(1));
+        let abs_line = self.viewport_to_absolute(self.cursor.row);
+        self.mark_line_dirty(abs_line);
+    }
+
+    pub fn cursor_forward_tab(&mut self, n: usize) {
+        for _ in 0..n {
+            self.tab();
+        }
+    }
+
+    pub fn cursor_backward_tab(&mut self, n: usize) {
+        for _ in 0..n {
+            let col = self.cursor.col;
+            if col == 0 {
+                break;
+            }
+            let prev = self.tab_stops[..col].iter().rposition(|&s| s).unwrap_or(0);
+            self.cursor.col = prev;
+        }
+    }
+
+    pub fn is_mode_set(&self, mode: u16) -> Option<bool> {
+        match mode {
+            1 => Some(self.application_cursor_keys),
+            6 => Some(self.origin_mode),
+            7 => Some(self.autowrap),
+            25 => Some(self.cursor_visible),
+            47 | 1047 | 1049 => Some(self.use_alt_screen),
+            1000 => Some(self.mouse_mode >= 1000),
+            1002 => Some(self.mouse_mode >= 1002),
+            1003 => Some(self.mouse_mode >= 1003),
+            1004 => Some(self.focus_tracking),
+            1006 => Some(self.sgr_mouse),
+            2004 => Some(self.bracketed_paste),
+            2026 => Some(self.sync_update_active),
+            _ => None,
+        }
+    }
+
     pub fn save_cursor(&mut self) {
         self.saved_cursor = Some(SavedCursor {
             position: self.cursor,

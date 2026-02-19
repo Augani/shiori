@@ -141,6 +141,7 @@ enum ParserState {
     CsiIntermediate,
     CsiPrivate,
     OscString,
+    OscEscIntermediate,
     DcsEntry,
     ApcString,
 }
@@ -156,6 +157,9 @@ pub enum ParsedSegment {
     CursorToColumn(usize),
     CursorNextLine(usize),
     CursorPrevLine(usize),
+    VerticalPositionAbsolute(usize),
+    CursorForwardTab(usize),
+    CursorBackwardTab(usize),
     CursorSave,
     CursorRestore,
     CursorVisible(bool),
@@ -206,6 +210,8 @@ pub enum ParsedSegment {
     InsertMode(bool),
     RepeatChar(usize),
     ScreenAlignmentTest,
+    RequestMode(u16),
+    RequestVersion,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -341,6 +347,9 @@ impl AnsiParser {
                 }
                 ParserState::OscString => {
                     self.handle_osc(byte, &mut segments);
+                }
+                ParserState::OscEscIntermediate => {
+                    self.handle_osc_esc(byte, &mut text_buffer, &mut segments);
                 }
                 ParserState::DcsEntry => {
                     self.handle_dcs(byte);
@@ -632,6 +641,9 @@ impl AnsiParser {
                 }
                 self.params.push(0);
             }
+            b' '..=b'/' => {
+                self.intermediate.push(byte);
+            }
             b'@'..=b'~' => {
                 self.execute_private_mode(byte, segments);
                 self.state = ParserState::Ground;
@@ -656,6 +668,12 @@ impl AnsiParser {
                 if !self.intermediate.is_empty() && self.intermediate[0] == b' ' && byte == b'q' {
                     let style = self.params.first().copied().unwrap_or(0) as u8;
                     segments.push(ParsedSegment::CursorStyle(style));
+                } else if !self.intermediate.is_empty()
+                    && self.intermediate[0] == b'$'
+                    && byte == b'p'
+                {
+                    let mode = self.params.first().copied().unwrap_or(0);
+                    segments.push(ParsedSegment::RequestMode(mode));
                 }
                 self.state = ParserState::Ground;
             }
@@ -672,14 +690,28 @@ impl AnsiParser {
                 self.state = ParserState::Ground;
             }
             0x1B => {
-                self.state = ParserState::Ground;
-                self.execute_osc(segments);
+                self.state = ParserState::OscEscIntermediate;
             }
             _ => {
                 if self.osc_string.len() < 4096 {
                     self.osc_string.push(byte);
                 }
             }
+        }
+    }
+
+    fn handle_osc_esc(
+        &mut self,
+        byte: u8,
+        text_buffer: &mut String,
+        segments: &mut Vec<ParsedSegment>,
+    ) {
+        self.execute_osc(segments);
+        if byte == b'\\' {
+            self.state = ParserState::Ground;
+        } else {
+            self.state = ParserState::Escape;
+            self.handle_escape(byte, text_buffer, segments);
         }
     }
 
@@ -960,7 +992,9 @@ impl AnsiParser {
             }
             b'd' => {
                 let row = param_or(&self.params, 0, 1);
-                segments.push(ParsedSegment::CursorPosition(row.saturating_sub(1), 0));
+                segments.push(ParsedSegment::VerticalPositionAbsolute(
+                    row.saturating_sub(1),
+                ));
             }
             b'J' => {
                 let mode = ClearMode::from_param(param_or(&self.params, 0, 0));
@@ -1042,6 +1076,20 @@ impl AnsiParser {
                     }
                 }
             }
+            b'I' => {
+                segments.push(ParsedSegment::CursorForwardTab(param_or(
+                    &self.params,
+                    0,
+                    1,
+                )));
+            }
+            b'Z' => {
+                segments.push(ParsedSegment::CursorBackwardTab(param_or(
+                    &self.params,
+                    0,
+                    1,
+                )));
+            }
             b't' => {}
             b'q' => {}
             _ => {}
@@ -1053,6 +1101,17 @@ impl AnsiParser {
             if self.private_marker == Some(b'>') {
                 segments.push(ParsedSegment::DeviceAttributes(1));
             }
+            return;
+        }
+
+        if final_byte == b'q' && self.private_marker == Some(b'>') {
+            segments.push(ParsedSegment::RequestVersion);
+            return;
+        }
+
+        if final_byte == b'p' && self.intermediate.contains(&b'$') {
+            let mode = self.params.first().copied().unwrap_or(0);
+            segments.push(ParsedSegment::RequestMode(mode));
             return;
         }
 

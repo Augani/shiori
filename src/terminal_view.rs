@@ -260,6 +260,11 @@ impl TerminalView {
             ParsedSegment::CursorToColumn(col) => self.state.cursor_to_column(col),
             ParsedSegment::CursorNextLine(n) => self.state.cursor_next_line(n),
             ParsedSegment::CursorPrevLine(n) => self.state.cursor_prev_line(n),
+            ParsedSegment::VerticalPositionAbsolute(row) => {
+                self.state.vertical_position_absolute(row)
+            }
+            ParsedSegment::CursorForwardTab(n) => self.state.cursor_forward_tab(n),
+            ParsedSegment::CursorBackwardTab(n) => self.state.cursor_backward_tab(n),
             ParsedSegment::CursorSave => self.state.save_cursor(),
             ParsedSegment::CursorRestore => self.state.restore_cursor(),
             ParsedSegment::CursorVisible(v) => self.state.set_cursor_visible(v),
@@ -345,7 +350,7 @@ impl TerminalView {
             }
             ParsedSegment::DeviceAttributes(level) => {
                 if level == 0 {
-                    self.send_input(b"\x1b[?62;4c");
+                    self.send_input(b"\x1b[?62;22c");
                 } else {
                     self.send_input(b"\x1b[>1;1;0c");
                 }
@@ -382,6 +387,19 @@ impl TerminalView {
             }
             ParsedSegment::ScreenAlignmentTest => {
                 self.state.screen_alignment_test();
+            }
+            ParsedSegment::RequestMode(mode) => {
+                let status = match self.state.is_mode_set(mode) {
+                    Some(true) => 1,
+                    Some(false) => 2,
+                    None => 0,
+                };
+                let response = format!("\x1b[?{};{}$y", mode, status);
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::RequestVersion => {
+                let response = format!("\x1bP>|Shiori {}\x1b\\", env!("CARGO_PKG_VERSION"));
+                self.send_input(response.as_bytes());
             }
         }
     }
@@ -460,7 +478,9 @@ impl TerminalView {
                 if cols != self.state.cols() || rows != self.state.rows() {
                     self.state.resize(cols, rows);
                     if let Some(pty) = &mut self.pty {
-                        let _ = pty.resize(cols as u16, rows as u16);
+                        let pixel_width = (cols as f32 * self.char_width) as u16;
+                        let pixel_height = (rows as f32 * self.line_height) as u16;
+                        let _ = pty.resize(cols as u16, rows as u16, pixel_width, pixel_height);
                     }
                 }
             }
