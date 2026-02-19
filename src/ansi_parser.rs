@@ -143,6 +143,7 @@ enum ParserState {
     OscString,
     OscEscIntermediate,
     DcsEntry,
+    DcsCollect,
     ApcString,
 }
 
@@ -229,6 +230,8 @@ pub enum ParsedSegment {
     ReportCharSize,
     PushTitle,
     PopTitle,
+    XtGetTcap(String),
+    DecrqssRequest(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -265,6 +268,7 @@ pub struct AnsiParser {
     utf8_remaining: usize,
     private_marker: Option<u8>,
     apc_string: Vec<u8>,
+    dcs_string: Vec<u8>,
     kitty_chunks: Vec<u8>,
     kitty_params: String,
 }
@@ -291,6 +295,7 @@ impl AnsiParser {
             utf8_remaining: 0,
             private_marker: None,
             apc_string: Vec::new(),
+            dcs_string: Vec::new(),
             kitty_chunks: Vec::new(),
             kitty_params: String::new(),
         }
@@ -329,6 +334,7 @@ impl AnsiParser {
         self.utf8_remaining = 0;
         self.private_marker = None;
         self.apc_string.clear();
+        self.dcs_string.clear();
         self.kitty_chunks.clear();
         self.kitty_params.clear();
         self.current_style = CellStyle {
@@ -369,7 +375,10 @@ impl AnsiParser {
                     self.handle_osc_esc(byte, &mut text_buffer, &mut segments);
                 }
                 ParserState::DcsEntry => {
-                    self.handle_dcs(byte);
+                    self.handle_dcs_entry(byte);
+                }
+                ParserState::DcsCollect => {
+                    self.handle_dcs_collect(byte, &mut segments);
                 }
                 ParserState::ApcString => {
                     self.handle_apc(byte, &mut segments);
@@ -495,6 +504,7 @@ impl AnsiParser {
             }
             b'P' => {
                 self.state = ParserState::DcsEntry;
+                self.dcs_string.clear();
             }
             b'_' => {
                 self.state = ParserState::ApcString;
@@ -732,10 +742,67 @@ impl AnsiParser {
         }
     }
 
-    fn handle_dcs(&mut self, byte: u8) {
-        if byte == 0x1B {
-            self.state = ParserState::Ground;
+    fn handle_dcs_entry(&mut self, byte: u8) {
+        match byte {
+            0x1B => {
+                self.state = ParserState::Ground;
+            }
+            _ => {
+                self.dcs_string.push(byte);
+                self.state = ParserState::DcsCollect;
+            }
         }
+    }
+
+    fn handle_dcs_collect(&mut self, byte: u8, segments: &mut Vec<ParsedSegment>) {
+        match byte {
+            0x1B => {
+                self.execute_dcs(segments);
+                self.state = ParserState::Ground;
+            }
+            0x07 => {
+                self.execute_dcs(segments);
+                self.state = ParserState::Ground;
+            }
+            _ => {
+                if self.dcs_string.len() < 4096 {
+                    self.dcs_string.push(byte);
+                }
+            }
+        }
+    }
+
+    fn execute_dcs(&mut self, segments: &mut Vec<ParsedSegment>) {
+        let dcs = std::mem::take(&mut self.dcs_string);
+        let dcs_str = String::from_utf8_lossy(&dcs);
+
+        if let Some(hex_names) = dcs_str.strip_prefix("+q") {
+            for hex_name in hex_names.split(';') {
+                if let Some(name) = Self::hex_decode_string(hex_name.trim()) {
+                    segments.push(ParsedSegment::XtGetTcap(name));
+                }
+            }
+        } else if let Some(request) = dcs_str.strip_prefix("$q") {
+            segments.push(ParsedSegment::DecrqssRequest(request.to_string()));
+        }
+    }
+
+    fn hex_decode_string(hex: &str) -> Option<String> {
+        let bytes: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .filter_map(|i| {
+                if i + 2 <= hex.len() {
+                    u8::from_str_radix(&hex[i..i + 2], 16).ok()
+                } else {
+                    None
+                }
+            })
+            .collect();
+        String::from_utf8(bytes).ok()
+    }
+
+    pub fn hex_encode_string(s: &str) -> String {
+        s.bytes().map(|b| format!("{:02X}", b)).collect()
     }
 
     fn handle_apc(&mut self, byte: u8, segments: &mut Vec<ParsedSegment>) {

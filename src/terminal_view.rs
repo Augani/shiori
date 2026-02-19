@@ -474,6 +474,45 @@ impl TerminalView {
                     self.state.set_title(Some(title));
                 }
             }
+            ParsedSegment::XtGetTcap(name) => {
+                let (found, value) = match name.as_str() {
+                    "TN" => (true, "xterm-256color"),
+                    "Co" | "colors" => (true, "256"),
+                    "RGB" => (true, "8/8/8"),
+                    "Tc" => (true, "true"),
+                    "Su" => (true, "true"),
+                    "setrgbf" => (true, "\\E[38;2;%p1%d;%p2%d;%p3%dm"),
+                    "setrgbb" => (true, "\\E[48;2;%p1%d;%p2%d;%p3%dm"),
+                    _ => (false, ""),
+                };
+                let hex_name = AnsiParser::hex_encode_string(&name);
+                if found {
+                    let hex_val = AnsiParser::hex_encode_string(value);
+                    let response = format!("\x1bP1+r{}={}\x1b\\", hex_name, hex_val);
+                    self.send_input(response.as_bytes());
+                } else {
+                    let response = format!("\x1bP0+r{}\x1b\\", hex_name);
+                    self.send_input(response.as_bytes());
+                }
+            }
+            ParsedSegment::DecrqssRequest(request_type) => {
+                let response = match request_type.as_str() {
+                    "m" => {
+                        let sgr = self.state.current_sgr_string();
+                        format!("\x1bP1$r{}m\x1b\\", sgr)
+                    }
+                    "r" => {
+                        let (top, bottom) = self.state.scroll_region();
+                        format!("\x1bP1$r{};{}r\x1b\\", top + 1, bottom + 1)
+                    }
+                    " q" => {
+                        let style = self.state.cursor_style_code();
+                        format!("\x1bP1$r{} q\x1b\\", style)
+                    }
+                    _ => "\x1bP0$r\x1b\\".to_string(),
+                };
+                self.send_input(response.as_bytes());
+            }
         }
     }
 

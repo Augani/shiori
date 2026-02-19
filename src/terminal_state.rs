@@ -555,6 +555,51 @@ impl TerminalState {
         self.cursor_style = style;
     }
 
+    pub fn current_sgr_string(&self) -> String {
+        let mut parts = Vec::new();
+        if self.current_style.bold {
+            parts.push("1".to_string());
+        }
+        if self.current_style.dim {
+            parts.push("2".to_string());
+        }
+        if self.current_style.italic {
+            parts.push("3".to_string());
+        }
+        if self.current_style.underline {
+            parts.push("4".to_string());
+        }
+        if self.current_style.blink {
+            parts.push("5".to_string());
+        }
+        if self.current_style.inverse {
+            parts.push("7".to_string());
+        }
+        if self.current_style.hidden {
+            parts.push("8".to_string());
+        }
+        if self.current_style.strikethrough {
+            parts.push("9".to_string());
+        }
+        if parts.is_empty() {
+            "0".to_string()
+        } else {
+            parts.join(";")
+        }
+    }
+
+    pub fn scroll_region(&self) -> (usize, usize) {
+        (self.scroll_region_top, self.scroll_region_bottom)
+    }
+
+    pub fn cursor_style_code(&self) -> u8 {
+        match self.cursor_style {
+            CursorStyle::Block => 2,
+            CursorStyle::Underline => 4,
+            CursorStyle::Bar => 6,
+        }
+    }
+
     pub fn set_bracketed_paste(&mut self, enabled: bool) {
         self.bracketed_paste = enabled;
     }
