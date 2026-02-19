@@ -450,6 +450,30 @@ impl TerminalView {
             ParsedSegment::ResetForegroundColor => {}
             ParsedSegment::ResetBackgroundColor => {}
             ParsedSegment::ResetCursorColor => {}
+            ParsedSegment::ReportPixelSize => {
+                let height = (self.state.rows() as f32 * self.line_height) as usize;
+                let width = (self.state.cols() as f32 * self.char_width()) as usize;
+                let response = format!("\x1b[4;{};{}t", height, width);
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::ReportCellSize => {
+                let cell_h = self.line_height as usize;
+                let cell_w = self.char_width() as usize;
+                let response = format!("\x1b[6;{};{}t", cell_h, cell_w);
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::ReportCharSize => {
+                let response = format!("\x1b[8;{};{}t", self.state.rows(), self.state.cols());
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::PushTitle => {
+                self.state.push_title();
+            }
+            ParsedSegment::PopTitle => {
+                if let Some(title) = self.state.pop_title() {
+                    self.state.set_title(Some(title));
+                }
+            }
         }
     }
 

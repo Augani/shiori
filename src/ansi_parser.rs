@@ -224,6 +224,11 @@ pub enum ParsedSegment {
     ResetForegroundColor,
     ResetBackgroundColor,
     ResetCursorColor,
+    ReportPixelSize,
+    ReportCellSize,
+    ReportCharSize,
+    PushTitle,
+    PopTitle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1171,7 +1176,17 @@ impl AnsiParser {
                     1,
                 )));
             }
-            b't' => {}
+            b't' => {
+                let param = param_or(&self.params, 0, 0);
+                match param {
+                    14 => segments.push(ParsedSegment::ReportPixelSize),
+                    16 => segments.push(ParsedSegment::ReportCellSize),
+                    18 => segments.push(ParsedSegment::ReportCharSize),
+                    22 => segments.push(ParsedSegment::PushTitle),
+                    23 => segments.push(ParsedSegment::PopTitle),
+                    _ => {}
+                }
+            }
             b'q' => {}
             _ => {}
         }

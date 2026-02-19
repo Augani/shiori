@@ -386,6 +386,7 @@ pub struct TerminalState {
     all_dirty: bool,
     application_keypad: bool,
     tab_stops: Vec<bool>,
+    title_stack: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -458,6 +459,7 @@ impl TerminalState {
             all_dirty: true,
             application_keypad: false,
             tab_stops,
+            title_stack: Vec::new(),
         }
     }
 
@@ -528,6 +530,17 @@ impl TerminalState {
 
     pub fn set_title(&mut self, title: Option<String>) {
         self.title = title;
+    }
+
+    pub fn push_title(&mut self) {
+        if self.title_stack.len() < 10 {
+            self.title_stack
+                .push(self.title.clone().unwrap_or_default());
+        }
+    }
+
+    pub fn pop_title(&mut self) -> Option<String> {
+        self.title_stack.pop()
     }
 
     pub fn set_current_style(&mut self, style: CellStyle) {
