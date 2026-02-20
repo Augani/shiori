@@ -141,7 +141,9 @@ enum ParserState {
     CsiIntermediate,
     CsiPrivate,
     OscString,
+    OscEscIntermediate,
     DcsEntry,
+    DcsCollect,
     ApcString,
 }
 
@@ -156,6 +158,9 @@ pub enum ParsedSegment {
     CursorToColumn(usize),
     CursorNextLine(usize),
     CursorPrevLine(usize),
+    VerticalPositionAbsolute(usize),
+    CursorForwardTab(usize),
+    CursorBackwardTab(usize),
     CursorSave,
     CursorRestore,
     CursorVisible(bool),
@@ -206,6 +211,31 @@ pub enum ParsedSegment {
     InsertMode(bool),
     RepeatChar(usize),
     ScreenAlignmentTest,
+    RequestMode(u16),
+    RequestVersion,
+    QueryForegroundColor,
+    QueryBackgroundColor,
+    QueryCursorColor,
+    QueryPaletteColor(u8),
+    SetForegroundColor(u8, u8, u8),
+    SetBackgroundColor(u8, u8, u8),
+    SetCursorColor(u8, u8, u8),
+    SetPaletteColor(u8, u8, u8, u8),
+    ResetPalette,
+    ResetForegroundColor,
+    ResetBackgroundColor,
+    ResetCursorColor,
+    ReportPixelSize,
+    ReportCellSize,
+    ReportCharSize,
+    PushTitle,
+    PopTitle,
+    XtGetTcap(String),
+    DecrqssRequest(String),
+    QueryKeyboardMode,
+    PushKeyboardMode(u32),
+    PopKeyboardMode(u32),
+    SetKeyboardMode(u32, u8),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -242,6 +272,7 @@ pub struct AnsiParser {
     utf8_remaining: usize,
     private_marker: Option<u8>,
     apc_string: Vec<u8>,
+    dcs_string: Vec<u8>,
     kitty_chunks: Vec<u8>,
     kitty_params: String,
 }
@@ -268,6 +299,7 @@ impl AnsiParser {
             utf8_remaining: 0,
             private_marker: None,
             apc_string: Vec::new(),
+            dcs_string: Vec::new(),
             kitty_chunks: Vec::new(),
             kitty_params: String::new(),
         }
@@ -306,6 +338,7 @@ impl AnsiParser {
         self.utf8_remaining = 0;
         self.private_marker = None;
         self.apc_string.clear();
+        self.dcs_string.clear();
         self.kitty_chunks.clear();
         self.kitty_params.clear();
         self.current_style = CellStyle {
@@ -342,8 +375,14 @@ impl AnsiParser {
                 ParserState::OscString => {
                     self.handle_osc(byte, &mut segments);
                 }
+                ParserState::OscEscIntermediate => {
+                    self.handle_osc_esc(byte, &mut text_buffer, &mut segments);
+                }
                 ParserState::DcsEntry => {
-                    self.handle_dcs(byte);
+                    self.handle_dcs_entry(byte);
+                }
+                ParserState::DcsCollect => {
+                    self.handle_dcs_collect(byte, &mut segments);
                 }
                 ParserState::ApcString => {
                     self.handle_apc(byte, &mut segments);
@@ -469,6 +508,7 @@ impl AnsiParser {
             }
             b'P' => {
                 self.state = ParserState::DcsEntry;
+                self.dcs_string.clear();
             }
             b'_' => {
                 self.state = ParserState::ApcString;
@@ -632,6 +672,9 @@ impl AnsiParser {
                 }
                 self.params.push(0);
             }
+            b' '..=b'/' => {
+                self.intermediate.push(byte);
+            }
             b'@'..=b'~' => {
                 self.execute_private_mode(byte, segments);
                 self.state = ParserState::Ground;
@@ -656,6 +699,12 @@ impl AnsiParser {
                 if !self.intermediate.is_empty() && self.intermediate[0] == b' ' && byte == b'q' {
                     let style = self.params.first().copied().unwrap_or(0) as u8;
                     segments.push(ParsedSegment::CursorStyle(style));
+                } else if !self.intermediate.is_empty()
+                    && self.intermediate[0] == b'$'
+                    && byte == b'p'
+                {
+                    let mode = self.params.first().copied().unwrap_or(0);
+                    segments.push(ParsedSegment::RequestMode(mode));
                 }
                 self.state = ParserState::Ground;
             }
@@ -672,8 +721,7 @@ impl AnsiParser {
                 self.state = ParserState::Ground;
             }
             0x1B => {
-                self.state = ParserState::Ground;
-                self.execute_osc(segments);
+                self.state = ParserState::OscEscIntermediate;
             }
             _ => {
                 if self.osc_string.len() < 4096 {
@@ -683,10 +731,82 @@ impl AnsiParser {
         }
     }
 
-    fn handle_dcs(&mut self, byte: u8) {
-        if byte == 0x1B {
+    fn handle_osc_esc(
+        &mut self,
+        byte: u8,
+        text_buffer: &mut String,
+        segments: &mut Vec<ParsedSegment>,
+    ) {
+        self.execute_osc(segments);
+        if byte == b'\\' {
             self.state = ParserState::Ground;
+        } else {
+            self.state = ParserState::Escape;
+            self.handle_escape(byte, text_buffer, segments);
         }
+    }
+
+    fn handle_dcs_entry(&mut self, byte: u8) {
+        match byte {
+            0x1B => {
+                self.state = ParserState::Escape;
+            }
+            _ => {
+                self.dcs_string.push(byte);
+                self.state = ParserState::DcsCollect;
+            }
+        }
+    }
+
+    fn handle_dcs_collect(&mut self, byte: u8, segments: &mut Vec<ParsedSegment>) {
+        match byte {
+            0x1B => {
+                self.execute_dcs(segments);
+                self.state = ParserState::Escape;
+            }
+            0x07 => {
+                self.execute_dcs(segments);
+                self.state = ParserState::Ground;
+            }
+            _ => {
+                if self.dcs_string.len() < 4096 {
+                    self.dcs_string.push(byte);
+                }
+            }
+        }
+    }
+
+    fn execute_dcs(&mut self, segments: &mut Vec<ParsedSegment>) {
+        let dcs = std::mem::take(&mut self.dcs_string);
+        let dcs_str = String::from_utf8_lossy(&dcs);
+
+        if let Some(hex_names) = dcs_str.strip_prefix("+q") {
+            for hex_name in hex_names.split(';') {
+                if let Some(name) = Self::hex_decode_string(hex_name.trim()) {
+                    segments.push(ParsedSegment::XtGetTcap(name));
+                }
+            }
+        } else if let Some(request) = dcs_str.strip_prefix("$q") {
+            segments.push(ParsedSegment::DecrqssRequest(request.to_string()));
+        }
+    }
+
+    fn hex_decode_string(hex: &str) -> Option<String> {
+        let bytes: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .filter_map(|i| {
+                if i + 2 <= hex.len() {
+                    u8::from_str_radix(&hex[i..i + 2], 16).ok()
+                } else {
+                    None
+                }
+            })
+            .collect();
+        String::from_utf8(bytes).ok()
+    }
+
+    pub fn hex_encode_string(s: &str) -> String {
+        s.bytes().map(|b| format!("{:02X}", b)).collect()
     }
 
     fn handle_apc(&mut self, byte: u8, segments: &mut Vec<ParsedSegment>) {
@@ -856,8 +976,43 @@ impl AnsiParser {
         }));
     }
 
+    pub fn foreground_color(&self) -> Rgba {
+        self.default_fg
+    }
+
+    pub fn background_color(&self) -> Rgba {
+        self.default_bg
+    }
+
+    pub fn palette_color(&self, idx: u8) -> Rgba {
+        self.color_from_256_themed(idx as usize)
+    }
+
     fn execute_osc(&mut self, segments: &mut Vec<ParsedSegment>) {
         let osc = String::from_utf8_lossy(&self.osc_string).into_owned();
+        match osc.as_str() {
+            "104" => {
+                segments.push(ParsedSegment::ResetPalette);
+                self.osc_string.clear();
+                return;
+            }
+            "110" => {
+                segments.push(ParsedSegment::ResetForegroundColor);
+                self.osc_string.clear();
+                return;
+            }
+            "111" => {
+                segments.push(ParsedSegment::ResetBackgroundColor);
+                self.osc_string.clear();
+                return;
+            }
+            "112" => {
+                segments.push(ParsedSegment::ResetCursorColor);
+                self.osc_string.clear();
+                return;
+            }
+            _ => {}
+        }
         if let Some(idx) = osc.find(';') {
             let cmd = &osc[..idx];
             let arg = &osc[idx + 1..];
@@ -912,6 +1067,40 @@ impl AnsiParser {
                         segments.push(ParsedSegment::Notification(title, body));
                     }
                 }
+                "4" => {
+                    if let Some(semi) = arg.find(';') {
+                        let idx_str = &arg[..semi];
+                        let color_str = &arg[semi + 1..];
+                        if let Ok(idx) = idx_str.parse::<u8>() {
+                            if color_str == "?" {
+                                segments.push(ParsedSegment::QueryPaletteColor(idx));
+                            } else if let Some((r, g, b)) = parse_x11_color(color_str) {
+                                segments.push(ParsedSegment::SetPaletteColor(idx, r, g, b));
+                            }
+                        }
+                    }
+                }
+                "10" => {
+                    if arg == "?" {
+                        segments.push(ParsedSegment::QueryForegroundColor);
+                    } else if let Some((r, g, b)) = parse_x11_color(arg) {
+                        segments.push(ParsedSegment::SetForegroundColor(r, g, b));
+                    }
+                }
+                "11" => {
+                    if arg == "?" {
+                        segments.push(ParsedSegment::QueryBackgroundColor);
+                    } else if let Some((r, g, b)) = parse_x11_color(arg) {
+                        segments.push(ParsedSegment::SetBackgroundColor(r, g, b));
+                    }
+                }
+                "12" => {
+                    if arg == "?" {
+                        segments.push(ParsedSegment::QueryCursorColor);
+                    } else if let Some((r, g, b)) = parse_x11_color(arg) {
+                        segments.push(ParsedSegment::SetCursorColor(r, g, b));
+                    }
+                }
                 "1337" => {
                     self.parse_iterm2_image(arg, segments);
                 }
@@ -960,7 +1149,9 @@ impl AnsiParser {
             }
             b'd' => {
                 let row = param_or(&self.params, 0, 1);
-                segments.push(ParsedSegment::CursorPosition(row.saturating_sub(1), 0));
+                segments.push(ParsedSegment::VerticalPositionAbsolute(
+                    row.saturating_sub(1),
+                ));
             }
             b'J' => {
                 let mode = ClearMode::from_param(param_or(&self.params, 0, 0));
@@ -1042,17 +1233,78 @@ impl AnsiParser {
                     }
                 }
             }
-            b't' => {}
+            b'I' => {
+                segments.push(ParsedSegment::CursorForwardTab(param_or(
+                    &self.params,
+                    0,
+                    1,
+                )));
+            }
+            b'Z' => {
+                segments.push(ParsedSegment::CursorBackwardTab(param_or(
+                    &self.params,
+                    0,
+                    1,
+                )));
+            }
+            b't' => {
+                let param = param_or(&self.params, 0, 0);
+                match param {
+                    14 => segments.push(ParsedSegment::ReportPixelSize),
+                    16 => segments.push(ParsedSegment::ReportCellSize),
+                    18 => segments.push(ParsedSegment::ReportCharSize),
+                    22 => segments.push(ParsedSegment::PushTitle),
+                    23 => segments.push(ParsedSegment::PopTitle),
+                    _ => {}
+                }
+            }
             b'q' => {}
             _ => {}
         }
     }
 
     fn execute_private_mode(&mut self, final_byte: u8, segments: &mut Vec<ParsedSegment>) {
+        if final_byte == b'u' {
+            match self.private_marker {
+                Some(b'?') => {
+                    segments.push(ParsedSegment::QueryKeyboardMode);
+                    return;
+                }
+                Some(b'>') => {
+                    let flags = self.params.first().copied().unwrap_or(0) as u32;
+                    segments.push(ParsedSegment::PushKeyboardMode(flags));
+                    return;
+                }
+                Some(b'<') => {
+                    let n = self.params.first().copied().unwrap_or(1) as u32;
+                    segments.push(ParsedSegment::PopKeyboardMode(n));
+                    return;
+                }
+                Some(b'=') => {
+                    let flags = self.params.first().copied().unwrap_or(0) as u32;
+                    let mode = self.params.get(1).copied().unwrap_or(1) as u8;
+                    segments.push(ParsedSegment::SetKeyboardMode(flags, mode));
+                    return;
+                }
+                _ => return,
+            }
+        }
+
         if final_byte == b'c' {
             if self.private_marker == Some(b'>') {
                 segments.push(ParsedSegment::DeviceAttributes(1));
             }
+            return;
+        }
+
+        if final_byte == b'q' && self.private_marker == Some(b'>') {
+            segments.push(ParsedSegment::RequestVersion);
+            return;
+        }
+
+        if final_byte == b'p' && self.intermediate.contains(&b'$') {
+            let mode = self.params.first().copied().unwrap_or(0);
+            segments.push(ParsedSegment::RequestMode(mode));
             return;
         }
 
@@ -1328,6 +1580,27 @@ impl AnsiParser {
             _ => None,
         }
     }
+}
+
+fn parse_x11_color(s: &str) -> Option<(u8, u8, u8)> {
+    if let Some(hex) = s.strip_prefix("rgb:") {
+        let parts: Vec<&str> = hex.split('/').collect();
+        if parts.len() == 3 {
+            let r = u8::from_str_radix(&parts[0][..2.min(parts[0].len())], 16).ok()?;
+            let g = u8::from_str_radix(&parts[1][..2.min(parts[1].len())], 16).ok()?;
+            let b = u8::from_str_radix(&parts[2][..2.min(parts[2].len())], 16).ok()?;
+            return Some((r, g, b));
+        }
+    }
+    if let Some(hex) = s.strip_prefix('#') {
+        if hex.len() == 6 {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            return Some((r, g, b));
+        }
+    }
+    None
 }
 
 fn parse_iterm2_dimension(val: &str) -> ImageDimension {

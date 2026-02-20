@@ -205,7 +205,13 @@ impl PtyService {
         }
     }
 
-    pub fn resize(&mut self, cols: u16, rows: u16) -> Result<(), PtyError> {
+    pub fn resize(
+        &mut self,
+        cols: u16,
+        rows: u16,
+        pixel_width: u16,
+        pixel_height: u16,
+    ) -> Result<(), PtyError> {
         self.cols = cols;
         self.rows = rows;
 
@@ -215,8 +221,8 @@ impl PtyService {
                 .resize(PtySize {
                     rows,
                     cols,
-                    pixel_width: 0,
-                    pixel_height: 0,
+                    pixel_width,
+                    pixel_height,
                 })
                 .map_err(|e| PtyError::ResizeFailed(e.to_string()))?;
         }

@@ -386,6 +386,8 @@ pub struct TerminalState {
     all_dirty: bool,
     application_keypad: bool,
     tab_stops: Vec<bool>,
+    title_stack: Vec<String>,
+    keyboard_mode_stack: Vec<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -458,6 +460,8 @@ impl TerminalState {
             all_dirty: true,
             application_keypad: false,
             tab_stops,
+            title_stack: Vec::new(),
+            keyboard_mode_stack: Vec::new(),
         }
     }
 
@@ -530,6 +534,17 @@ impl TerminalState {
         self.title = title;
     }
 
+    pub fn push_title(&mut self) {
+        if self.title_stack.len() < 10 {
+            self.title_stack
+                .push(self.title.clone().unwrap_or_default());
+        }
+    }
+
+    pub fn pop_title(&mut self) -> Option<String> {
+        self.title_stack.pop()
+    }
+
     pub fn set_current_style(&mut self, style: CellStyle) {
         self.current_style = style;
     }
@@ -540,6 +555,84 @@ impl TerminalState {
 
     pub fn set_cursor_style(&mut self, style: CursorStyle) {
         self.cursor_style = style;
+    }
+
+    pub fn current_sgr_string(&self) -> String {
+        let mut parts = Vec::new();
+        if self.current_style.bold {
+            parts.push("1".to_string());
+        }
+        if self.current_style.dim {
+            parts.push("2".to_string());
+        }
+        if self.current_style.italic {
+            parts.push("3".to_string());
+        }
+        if self.current_style.underline {
+            parts.push("4".to_string());
+        }
+        if self.current_style.blink {
+            parts.push("5".to_string());
+        }
+        if self.current_style.inverse {
+            parts.push("7".to_string());
+        }
+        if self.current_style.hidden {
+            parts.push("8".to_string());
+        }
+        if self.current_style.strikethrough {
+            parts.push("9".to_string());
+        }
+        if parts.is_empty() {
+            "0".to_string()
+        } else {
+            parts.join(";")
+        }
+    }
+
+    pub fn scroll_region(&self) -> (usize, usize) {
+        (self.scroll_region_top, self.scroll_region_bottom)
+    }
+
+    pub fn cursor_style_code(&self) -> u8 {
+        match self.cursor_style {
+            CursorStyle::Block => 2,
+            CursorStyle::Underline => 4,
+            CursorStyle::Bar => 6,
+        }
+    }
+
+    pub fn keyboard_mode_flags(&self) -> u32 {
+        self.keyboard_mode_stack.last().copied().unwrap_or(0)
+    }
+
+    pub fn push_keyboard_mode(&mut self, flags: u32) {
+        if self.keyboard_mode_stack.len() < 8 {
+            self.keyboard_mode_stack.push(flags);
+        }
+    }
+
+    pub fn pop_keyboard_mode(&mut self, n: u32) {
+        for _ in 0..n {
+            if self.keyboard_mode_stack.pop().is_none() {
+                break;
+            }
+        }
+    }
+
+    pub fn set_keyboard_mode(&mut self, flags: u32, mode: u8) {
+        let current = self.keyboard_mode_flags();
+        let new_flags = match mode {
+            1 => flags,
+            2 => current | flags,
+            3 => current & !flags,
+            _ => flags,
+        };
+        if let Some(last) = self.keyboard_mode_stack.last_mut() {
+            *last = new_flags;
+        } else {
+            self.keyboard_mode_stack.push(new_flags);
+        }
     }
 
     pub fn set_bracketed_paste(&mut self, enabled: bool) {
@@ -823,6 +916,10 @@ impl TerminalState {
     }
 
     pub fn tab(&mut self) {
+        if self.cursor.col >= self.cols.saturating_sub(1) {
+            self.cursor.col = self.cols.saturating_sub(1);
+            return;
+        }
         let start = self.cursor.col + 1;
         let next_tab = self.tab_stops[start..]
             .iter()
@@ -954,6 +1051,47 @@ impl TerminalState {
     pub fn cursor_prev_line(&mut self, n: usize) {
         self.cursor_up(n);
         self.cursor.col = 0;
+    }
+
+    pub fn vertical_position_absolute(&mut self, row: usize) {
+        self.cursor.row = row.min(self.rows.saturating_sub(1));
+        let abs_line = self.viewport_to_absolute(self.cursor.row);
+        self.mark_line_dirty(abs_line);
+    }
+
+    pub fn cursor_forward_tab(&mut self, n: usize) {
+        for _ in 0..n {
+            self.tab();
+        }
+    }
+
+    pub fn cursor_backward_tab(&mut self, n: usize) {
+        for _ in 0..n {
+            let col = self.cursor.col;
+            if col == 0 {
+                break;
+            }
+            let prev = self.tab_stops[..col].iter().rposition(|&s| s).unwrap_or(0);
+            self.cursor.col = prev;
+        }
+    }
+
+    pub fn is_mode_set(&self, mode: u16) -> Option<bool> {
+        match mode {
+            1 => Some(self.application_cursor_keys),
+            6 => Some(self.origin_mode),
+            7 => Some(self.autowrap),
+            25 => Some(self.cursor_visible),
+            47 | 1047 | 1049 => Some(self.use_alt_screen),
+            1000 => Some(self.mouse_mode >= 1000),
+            1002 => Some(self.mouse_mode >= 1002),
+            1003 => Some(self.mouse_mode >= 1003),
+            1004 => Some(self.focus_tracking),
+            1006 => Some(self.sgr_mouse),
+            2004 => Some(self.bracketed_paste),
+            2026 => Some(self.sync_update_active),
+            _ => None,
+        }
     }
 
     pub fn save_cursor(&mut self) {
@@ -1210,48 +1348,164 @@ impl TerminalState {
         self.user_scrolled = false;
     }
 
+    fn reflow_lines(
+        lines: &mut VecDeque<TerminalLine>,
+        old_cols: usize,
+        new_cols: usize,
+        cursor_abs: usize,
+        cursor_col: usize,
+    ) -> (usize, usize) {
+        if old_cols == new_cols {
+            return (cursor_abs, cursor_col);
+        }
+
+        let mut new_cursor_row = cursor_abs;
+        let mut new_cursor_col = cursor_col;
+
+        if new_cols < old_cols {
+            let mut i = 0;
+            while i < lines.len() {
+                let content_end = lines[i]
+                    .cells
+                    .iter()
+                    .rposition(|c| c.char != ' ')
+                    .map(|p| p + 1)
+                    .unwrap_or(0);
+
+                if content_end > new_cols {
+                    let remainder: Vec<TerminalCell> = lines[i].cells.split_off(new_cols);
+                    let was_wrapped = lines[i].wrapped;
+                    lines[i].wrapped = true;
+
+                    let new_line = TerminalLine {
+                        cells: remainder,
+                        wrapped: was_wrapped,
+                    };
+
+                    if i < new_cursor_row {
+                        new_cursor_row += 1;
+                    } else if i == new_cursor_row && new_cursor_col >= new_cols {
+                        new_cursor_col -= new_cols;
+                        new_cursor_row += 1;
+                    }
+
+                    lines.insert(i + 1, new_line);
+                }
+                lines[i].cells.resize(new_cols, TerminalCell::default());
+                i += 1;
+            }
+        } else {
+            let mut i = 0;
+            while i < lines.len() {
+                if lines[i].wrapped && i + 1 < lines.len() {
+                    let current_content = lines[i]
+                        .cells
+                        .iter()
+                        .rposition(|c| c.char != ' ')
+                        .map(|p| p + 1)
+                        .unwrap_or(0);
+
+                    let space = new_cols.saturating_sub(current_content);
+                    if space > 0 && i + 1 < lines.len() {
+                        let next_line = lines.remove(i + 1).unwrap();
+                        let next_content = next_line
+                            .cells
+                            .iter()
+                            .rposition(|c| c.char != ' ')
+                            .map(|p| p + 1)
+                            .unwrap_or(0);
+                        let pull_count = space.min(next_content);
+
+                        lines[i].cells.truncate(current_content);
+                        lines[i]
+                            .cells
+                            .extend_from_slice(&next_line.cells[..pull_count]);
+                        lines[i].cells.resize(new_cols, TerminalCell::default());
+
+                        let remaining = next_content.saturating_sub(pull_count);
+                        if remaining > 0 {
+                            let mut remaining_line = TerminalLine {
+                                cells: next_line.cells[pull_count..].to_vec(),
+                                wrapped: next_line.wrapped,
+                            };
+                            remaining_line
+                                .cells
+                                .resize(new_cols, TerminalCell::default());
+                            lines.insert(i + 1, remaining_line);
+                            lines[i].wrapped = true;
+                        } else {
+                            lines[i].wrapped = next_line.wrapped;
+                            if i < new_cursor_row {
+                                new_cursor_row = new_cursor_row.saturating_sub(1);
+                            }
+                        }
+                        continue;
+                    }
+                }
+                lines[i].cells.resize(new_cols, TerminalCell::default());
+                i += 1;
+            }
+        }
+
+        new_cursor_row = new_cursor_row.min(lines.len().saturating_sub(1));
+        new_cursor_col = new_cursor_col.min(new_cols.saturating_sub(1));
+        (new_cursor_row, new_cursor_col)
+    }
+
     pub fn resize(&mut self, cols: usize, rows: usize) {
         if cols == self.cols && rows == self.rows {
             return;
         }
 
+        let old_cols = self.cols;
         let cursor_abs = self.lines.len().saturating_sub(self.rows) + self.cursor.row;
-        let old_cursor_row = self.cursor.row;
 
         self.cols = cols;
         self.rows = rows;
 
-        for line in &mut self.lines {
-            line.resize(cols);
+        if !self.use_alt_screen {
+            let (new_cursor_abs, new_cursor_col) =
+                Self::reflow_lines(&mut self.lines, old_cols, cols, cursor_abs, self.cursor.col);
+
+            let max_lines = new_cursor_abs.saturating_add(rows);
+            while self.lines.len() > max_lines {
+                self.lines.pop_back();
+            }
+
+            let viewport_start = if self.lines.len() >= rows {
+                self.lines.len() - rows
+            } else {
+                0
+            };
+
+            self.cursor.row = new_cursor_abs
+                .saturating_sub(viewport_start)
+                .min(rows.saturating_sub(1));
+            self.cursor.col = new_cursor_col;
+
+            while self.lines.len() < viewport_start + rows {
+                self.lines.push_back(TerminalLine::new(cols));
+            }
+        } else {
+            for line in &mut self.lines {
+                line.resize(cols);
+            }
+            self.cursor.row = self.cursor.row.min(rows.saturating_sub(1));
+            self.cursor.col = self.cursor.col.min(cols.saturating_sub(1));
         }
-
-        let target_cursor_row = old_cursor_row.min(rows.saturating_sub(1));
-        let needed_total = (cursor_abs + rows).saturating_sub(target_cursor_row);
-
-        while self.lines.len() > needed_total && self.lines.len() > cursor_abs + 1 {
-            self.lines.pop_back();
-        }
-
-        while self.lines.len() < needed_total {
-            self.lines.push_back(TerminalLine::new(cols));
-        }
-
-        self.cursor.row = target_cursor_row;
-        self.cursor.col = self.cursor.col.min(cols.saturating_sub(1));
 
         self.scroll_region_top = 0;
         self.scroll_region_bottom = rows.saturating_sub(1);
-
         self.scroll_offset = self.scroll_offset.min(self.max_scroll_offset());
-
-        self.tabs.clear();
-        for i in (0..cols).step_by(8) {
-            self.tabs.push(i);
-        }
 
         self.tab_stops.resize(cols, false);
         for (i, stop) in self.tab_stops.iter_mut().enumerate() {
             *stop = i % 8 == 0;
+        }
+
+        self.tabs.clear();
+        for i in (0..cols).step_by(8) {
+            self.tabs.push(i);
         }
 
         self.mark_all_dirty();
@@ -1291,7 +1545,10 @@ impl TerminalState {
         self.mouse_mode = 0;
         self.sgr_mouse = false;
         self.focus_tracking = false;
+        self.application_cursor_keys = false;
         self.user_scrolled = false;
+        self.keyboard_mode_stack.clear();
+        self.title_stack.clear();
         self.g0_charset = Charset::Ascii;
         self.g1_charset = Charset::Ascii;
         self.active_charset = 0;

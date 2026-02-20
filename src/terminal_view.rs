@@ -260,6 +260,11 @@ impl TerminalView {
             ParsedSegment::CursorToColumn(col) => self.state.cursor_to_column(col),
             ParsedSegment::CursorNextLine(n) => self.state.cursor_next_line(n),
             ParsedSegment::CursorPrevLine(n) => self.state.cursor_prev_line(n),
+            ParsedSegment::VerticalPositionAbsolute(row) => {
+                self.state.vertical_position_absolute(row)
+            }
+            ParsedSegment::CursorForwardTab(n) => self.state.cursor_forward_tab(n),
+            ParsedSegment::CursorBackwardTab(n) => self.state.cursor_backward_tab(n),
             ParsedSegment::CursorSave => self.state.save_cursor(),
             ParsedSegment::CursorRestore => self.state.restore_cursor(),
             ParsedSegment::CursorVisible(v) => self.state.set_cursor_visible(v),
@@ -345,7 +350,7 @@ impl TerminalView {
             }
             ParsedSegment::DeviceAttributes(level) => {
                 if level == 0 {
-                    self.send_input(b"\x1b[?62;4c");
+                    self.send_input(b"\x1b[?62;22c");
                 } else {
                     self.send_input(b"\x1b[>1;1;0c");
                 }
@@ -382,6 +387,145 @@ impl TerminalView {
             }
             ParsedSegment::ScreenAlignmentTest => {
                 self.state.screen_alignment_test();
+            }
+            ParsedSegment::RequestMode(mode) => {
+                let status = match self.state.is_mode_set(mode) {
+                    Some(true) => 1,
+                    Some(false) => 2,
+                    None => 0,
+                };
+                let response = format!("\x1b[?{};{}$y", mode, status);
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::RequestVersion => {
+                let response = format!("\x1bP>|Shiori {}\x1b\\", env!("CARGO_PKG_VERSION"));
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::QueryForegroundColor => {
+                let fg = self.parser.foreground_color();
+                let response = format!(
+                    "\x1b]10;rgb:{:04x}/{:04x}/{:04x}\x1b\\",
+                    (fg.r * 255.0) as u16 * 257,
+                    (fg.g * 255.0) as u16 * 257,
+                    (fg.b * 255.0) as u16 * 257,
+                );
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::QueryBackgroundColor => {
+                let bg = self.parser.background_color();
+                let response = format!(
+                    "\x1b]11;rgb:{:04x}/{:04x}/{:04x}\x1b\\",
+                    (bg.r * 255.0) as u16 * 257,
+                    (bg.g * 255.0) as u16 * 257,
+                    (bg.b * 255.0) as u16 * 257,
+                );
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::QueryCursorColor => {
+                let fg = self.parser.foreground_color();
+                let response = format!(
+                    "\x1b]12;rgb:{:04x}/{:04x}/{:04x}\x1b\\",
+                    (fg.r * 255.0) as u16 * 257,
+                    (fg.g * 255.0) as u16 * 257,
+                    (fg.b * 255.0) as u16 * 257,
+                );
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::QueryPaletteColor(idx) => {
+                let color = self.parser.palette_color(idx);
+                let response = format!(
+                    "\x1b]4;{};rgb:{:04x}/{:04x}/{:04x}\x1b\\",
+                    idx,
+                    (color.r * 255.0) as u16 * 257,
+                    (color.g * 255.0) as u16 * 257,
+                    (color.b * 255.0) as u16 * 257,
+                );
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::SetForegroundColor(_, _, _) => {}
+            ParsedSegment::SetBackgroundColor(_, _, _) => {}
+            ParsedSegment::SetCursorColor(_, _, _) => {}
+            ParsedSegment::SetPaletteColor(_, _, _, _) => {}
+            ParsedSegment::ResetPalette => {}
+            ParsedSegment::ResetForegroundColor => {}
+            ParsedSegment::ResetBackgroundColor => {}
+            ParsedSegment::ResetCursorColor => {}
+            ParsedSegment::ReportPixelSize => {
+                let height = (self.state.rows() as f32 * self.line_height) as usize;
+                let width = (self.state.cols() as f32 * self.char_width()) as usize;
+                let response = format!("\x1b[4;{};{}t", height, width);
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::ReportCellSize => {
+                let cell_h = self.line_height as usize;
+                let cell_w = self.char_width() as usize;
+                let response = format!("\x1b[6;{};{}t", cell_h, cell_w);
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::ReportCharSize => {
+                let response = format!("\x1b[8;{};{}t", self.state.rows(), self.state.cols());
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::PushTitle => {
+                self.state.push_title();
+            }
+            ParsedSegment::PopTitle => {
+                if let Some(title) = self.state.pop_title() {
+                    self.state.set_title(Some(title));
+                }
+            }
+            ParsedSegment::XtGetTcap(name) => {
+                let (found, value) = match name.as_str() {
+                    "TN" => (true, "xterm-256color"),
+                    "Co" | "colors" => (true, "256"),
+                    "RGB" => (true, "8/8/8"),
+                    "Tc" => (true, "true"),
+                    "Su" => (true, "true"),
+                    "setrgbf" => (true, "\\E[38;2;%p1%d;%p2%d;%p3%dm"),
+                    "setrgbb" => (true, "\\E[48;2;%p1%d;%p2%d;%p3%dm"),
+                    _ => (false, ""),
+                };
+                let hex_name = AnsiParser::hex_encode_string(&name);
+                if found {
+                    let hex_val = AnsiParser::hex_encode_string(value);
+                    let response = format!("\x1bP1+r{}={}\x1b\\", hex_name, hex_val);
+                    self.send_input(response.as_bytes());
+                } else {
+                    let response = format!("\x1bP0+r{}\x1b\\", hex_name);
+                    self.send_input(response.as_bytes());
+                }
+            }
+            ParsedSegment::DecrqssRequest(request_type) => {
+                let response = match request_type.as_str() {
+                    "m" => {
+                        let sgr = self.state.current_sgr_string();
+                        format!("\x1bP1$r{}m\x1b\\", sgr)
+                    }
+                    "r" => {
+                        let (top, bottom) = self.state.scroll_region();
+                        format!("\x1bP1$r{};{}r\x1b\\", top + 1, bottom + 1)
+                    }
+                    " q" => {
+                        let style = self.state.cursor_style_code();
+                        format!("\x1bP1$r{} q\x1b\\", style)
+                    }
+                    _ => "\x1bP0$r\x1b\\".to_string(),
+                };
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::QueryKeyboardMode => {
+                let flags = self.state.keyboard_mode_flags();
+                let response = format!("\x1b[?{}u", flags);
+                self.send_input(response.as_bytes());
+            }
+            ParsedSegment::PushKeyboardMode(flags) => {
+                self.state.push_keyboard_mode(flags);
+            }
+            ParsedSegment::PopKeyboardMode(n) => {
+                self.state.pop_keyboard_mode(n);
+            }
+            ParsedSegment::SetKeyboardMode(flags, mode) => {
+                self.state.set_keyboard_mode(flags, mode);
             }
         }
     }
@@ -440,6 +584,12 @@ impl TerminalView {
     }
 
     pub fn update_viewport(&mut self, width: f32, height: f32) {
+        let min_width = TERMINAL_PADDING * 2.0 + 12.0 + self.char_width();
+        let min_height = TERMINAL_PADDING * 2.0 + self.line_height;
+        if width < min_width || height < min_height {
+            return;
+        }
+
         self.viewport_width = width;
         self.viewport_height = height;
 
@@ -460,7 +610,9 @@ impl TerminalView {
                 if cols != self.state.cols() || rows != self.state.rows() {
                     self.state.resize(cols, rows);
                     if let Some(pty) = &mut self.pty {
-                        let _ = pty.resize(cols as u16, rows as u16);
+                        let pixel_width = (cols as f32 * self.char_width) as u16;
+                        let pixel_height = (rows as f32 * self.line_height) as u16;
+                        let _ = pty.resize(cols as u16, rows as u16, pixel_width, pixel_height);
                     }
                 }
             }
@@ -479,6 +631,87 @@ impl TerminalView {
         self.state.scroll_to_bottom();
     }
 
+    fn modifier_value(modifiers: &gpui::Modifiers) -> u8 {
+        let mut val: u8 = 1;
+        if modifiers.shift {
+            val += 1;
+        }
+        if modifiers.alt {
+            val += 2;
+        }
+        if modifiers.control {
+            val += 4;
+        }
+        val
+    }
+
+    fn has_modifiers(modifiers: &gpui::Modifiers) -> bool {
+        modifiers.shift || modifiers.alt || modifiers.control
+    }
+
+    fn encode_key_kitty(&mut self, key: &str, event: &KeyDownEvent) -> bool {
+        let flags = self.state.keyboard_mode_flags();
+        if flags == 0 {
+            return false;
+        }
+
+        let disambiguate = flags & 1 != 0;
+        if !disambiguate {
+            return false;
+        }
+
+        let mods = &event.keystroke.modifiers;
+        let mod_val = Self::modifier_value(mods);
+        let has_mods = Self::has_modifiers(mods);
+
+        let codepoint = match key {
+            "enter" => Some(13u32),
+            "tab" => Some(9),
+            "backspace" => Some(127),
+            "escape" => Some(27),
+            "space" => Some(32),
+            "delete" => Some(57349),
+            "insert" => Some(57348),
+            "up" => Some(57352),
+            "down" => Some(57353),
+            "right" => Some(57351),
+            "left" => Some(57350),
+            "home" => Some(57356),
+            "end" => Some(57357),
+            "pageup" => Some(57354),
+            "pagedown" => Some(57355),
+            _ => None,
+        };
+
+        let report_all = flags & 8 != 0;
+
+        if let Some(cp) = codepoint {
+            if has_mods || report_all || matches!(key, "enter" | "tab" | "backspace" | "escape") {
+                let seq = if has_mods {
+                    format!("\x1b[{};{}u", cp, mod_val)
+                } else {
+                    format!("\x1b[{}u", cp)
+                };
+                self.send_input(seq.as_bytes());
+                return true;
+            }
+            return false;
+        }
+
+        if let Some(key_char) = &event.keystroke.key_char {
+            if let Some(c) = key_char.chars().next() {
+                if mods.control && c.is_ascii_alphabetic() {
+                    let cp = c.to_ascii_lowercase() as u32;
+                    let seq = format!("\x1b[{};{}u", cp, mod_val);
+                    self.send_input(seq.as_bytes());
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     pub fn handle_key_down(
         &mut self,
         event: &KeyDownEvent,
@@ -495,6 +728,11 @@ impl TerminalView {
         }
 
         let key = event.keystroke.key.as_str();
+
+        if self.encode_key_kitty(key, event) {
+            self.reset_cursor_blink();
+            return;
+        }
 
         let app_cursor = self.state.application_cursor_keys();
         let handled = match key {
@@ -515,11 +753,23 @@ impl TerminalView {
                 true
             }
             "delete" => {
-                self.send_input(key_codes::DELETE);
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[3;{}~", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(key_codes::DELETE);
+                }
                 true
             }
             "up" => {
-                if app_cursor {
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[1;{}A", m);
+                    self.send_input(seq.as_bytes());
+                } else if app_cursor {
                     self.send_input(b"\x1bOA");
                 } else {
                     self.send_input(key_codes::UP);
@@ -527,7 +777,12 @@ impl TerminalView {
                 true
             }
             "down" => {
-                if app_cursor {
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[1;{}B", m);
+                    self.send_input(seq.as_bytes());
+                } else if app_cursor {
                     self.send_input(b"\x1bOB");
                 } else {
                     self.send_input(key_codes::DOWN);
@@ -535,7 +790,12 @@ impl TerminalView {
                 true
             }
             "right" => {
-                if app_cursor {
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[1;{}C", m);
+                    self.send_input(seq.as_bytes());
+                } else if app_cursor {
                     self.send_input(b"\x1bOC");
                 } else {
                     self.send_input(key_codes::RIGHT);
@@ -543,7 +803,12 @@ impl TerminalView {
                 true
             }
             "left" => {
-                if app_cursor {
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[1;{}D", m);
+                    self.send_input(seq.as_bytes());
+                } else if app_cursor {
                     self.send_input(b"\x1bOD");
                 } else {
                     self.send_input(key_codes::LEFT);
@@ -551,7 +816,12 @@ impl TerminalView {
                 true
             }
             "home" => {
-                if app_cursor {
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[1;{}H", m);
+                    self.send_input(seq.as_bytes());
+                } else if app_cursor {
                     self.send_input(b"\x1bOH");
                 } else {
                     self.send_input(key_codes::HOME);
@@ -559,7 +829,12 @@ impl TerminalView {
                 true
             }
             "end" => {
-                if app_cursor {
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[1;{}F", m);
+                    self.send_input(seq.as_bytes());
+                } else if app_cursor {
                     self.send_input(b"\x1bOF");
                 } else {
                     self.send_input(key_codes::END);
@@ -567,63 +842,168 @@ impl TerminalView {
                 true
             }
             "pageup" => {
-                self.send_input(key_codes::PAGE_UP);
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[5;{}~", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(key_codes::PAGE_UP);
+                }
                 true
             }
             "pagedown" => {
-                self.send_input(key_codes::PAGE_DOWN);
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[6;{}~", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(key_codes::PAGE_DOWN);
+                }
                 true
             }
             "insert" => {
-                self.send_input(b"\x1b[2~");
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[2;{}~", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(b"\x1b[2~");
+                }
                 true
             }
             "f1" => {
-                self.send_input(b"\x1bOP");
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[1;{}P", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(b"\x1bOP");
+                }
                 true
             }
             "f2" => {
-                self.send_input(b"\x1bOQ");
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[1;{}Q", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(b"\x1bOQ");
+                }
                 true
             }
             "f3" => {
-                self.send_input(b"\x1bOR");
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[1;{}R", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(b"\x1bOR");
+                }
                 true
             }
             "f4" => {
-                self.send_input(b"\x1bOS");
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[1;{}S", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(b"\x1bOS");
+                }
                 true
             }
             "f5" => {
-                self.send_input(b"\x1b[15~");
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[15;{}~", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(b"\x1b[15~");
+                }
                 true
             }
             "f6" => {
-                self.send_input(b"\x1b[17~");
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[17;{}~", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(b"\x1b[17~");
+                }
                 true
             }
             "f7" => {
-                self.send_input(b"\x1b[18~");
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[18;{}~", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(b"\x1b[18~");
+                }
                 true
             }
             "f8" => {
-                self.send_input(b"\x1b[19~");
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[19;{}~", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(b"\x1b[19~");
+                }
                 true
             }
             "f9" => {
-                self.send_input(b"\x1b[20~");
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[20;{}~", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(b"\x1b[20~");
+                }
                 true
             }
             "f10" => {
-                self.send_input(b"\x1b[21~");
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[21;{}~", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(b"\x1b[21~");
+                }
                 true
             }
             "f11" => {
-                self.send_input(b"\x1b[23~");
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[23;{}~", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(b"\x1b[23~");
+                }
                 true
             }
             "f12" => {
-                self.send_input(b"\x1b[24~");
+                let mods = &event.keystroke.modifiers;
+                if Self::has_modifiers(mods) {
+                    let m = Self::modifier_value(mods);
+                    let seq = format!("\x1b[24;{}~", m);
+                    self.send_input(seq.as_bytes());
+                } else {
+                    self.send_input(b"\x1b[24~");
+                }
                 true
             }
             "space" => {
@@ -799,8 +1179,9 @@ impl TerminalView {
                     self.is_selecting = false;
                 }
                 _ => {
-                    self.selection_start = Some((line, col));
-                    self.selection_end = Some((line, col));
+                    let snapped_col = self.snap_to_primary_cell(line, col);
+                    self.selection_start = Some((line, snapped_col));
+                    self.selection_end = Some((line, snapped_col));
                     self.is_selecting = true;
                 }
             }
@@ -838,41 +1219,71 @@ impl TerminalView {
         None
     }
 
+    fn snap_to_primary_cell(&self, line_idx: usize, col: usize) -> usize {
+        if let Some(line) = self.state.line(line_idx) {
+            if col < line.cells.len() && line.cells[col].width == 0 {
+                return (0..col)
+                    .rev()
+                    .find(|&c| line.cells[c].width != 0)
+                    .unwrap_or(col);
+            }
+        }
+        col
+    }
+
     fn word_bounds_at(&self, line_idx: usize, col: usize) -> (usize, usize) {
         let line = match self.state.line(line_idx) {
             Some(l) => l,
             None => return (col, col),
         };
 
-        let chars: Vec<char> = line.cells.iter().map(|c| c.char).collect();
-        if col >= chars.len() {
+        if col >= line.cells.len() {
             return (col, col);
         }
 
-        let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
-        let target_is_word = is_word_char(chars[col]);
+        let actual_col = if line.cells[col].width == 0 {
+            (0..col)
+                .rev()
+                .find(|&c| line.cells[c].width != 0)
+                .unwrap_or(col)
+        } else {
+            col
+        };
 
-        let mut start = col;
+        let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
+        let target_char = line.cells[actual_col].char;
+        let target_is_word = is_word_char(target_char);
+
+        let mut start = actual_col;
         while start > 0 {
-            let prev = chars[start - 1];
+            let prev = start - 1;
+            if line.cells[prev].width == 0 {
+                start = prev;
+                continue;
+            }
+            let prev_char = line.cells[prev].char;
             if target_is_word {
-                if !is_word_char(prev) {
+                if !is_word_char(prev_char) {
                     break;
                 }
-            } else if prev.is_whitespace() != chars[col].is_whitespace() {
+            } else if prev_char.is_whitespace() != target_char.is_whitespace() {
                 break;
             }
-            start -= 1;
+            start = prev;
         }
 
-        let mut end = col;
-        while end < chars.len() {
-            let curr = chars[end];
+        let mut end = actual_col;
+        while end < line.cells.len() {
+            let cell = &line.cells[end];
+            if cell.width == 0 {
+                end += 1;
+                continue;
+            }
             if target_is_word {
-                if !is_word_char(curr) {
+                if !is_word_char(cell.char) {
                     break;
                 }
-            } else if curr.is_whitespace() != chars[col].is_whitespace() {
+            } else if cell.char.is_whitespace() != target_char.is_whitespace() {
                 break;
             }
             end += 1;
@@ -899,7 +1310,8 @@ impl TerminalView {
         if dragging {
             self.is_selecting = true;
             let (line, col) = self.position_from_mouse(event.position);
-            self.selection_end = Some((line, col));
+            let snapped_col = self.snap_to_primary_cell(line, col);
+            self.selection_end = Some((line, snapped_col));
             cx.notify();
         }
     }
@@ -1020,28 +1432,34 @@ impl TerminalView {
 
         for line_idx in start_line..=end_line {
             if let Some(line) = self.state.line(line_idx) {
-                let line_text: String = line.cells.iter().map(|c| c.char).collect();
-                let line_text = line_text.trim_end();
-
                 let col_start = if line_idx == start_line { start_col } else { 0 };
                 let col_end = if line_idx == end_line {
-                    end_col.min(line_text.len())
+                    end_col.min(line.cells.len())
                 } else {
-                    line_text.len()
+                    line.cells.len()
                 };
 
-                if col_start < line_text.len() {
-                    let chars: Vec<char> = line_text.chars().collect();
-                    let selected: String =
-                        chars[col_start..col_end.min(chars.len())].iter().collect();
-                    result.push_str(&selected);
+                for col in col_start..col_end {
+                    if let Some(cell) = line.cells.get(col) {
+                        if cell.width == 0 {
+                            continue;
+                        }
+                        result.push(cell.char);
+                    }
                 }
 
                 if line_idx < end_line {
-                    result.push('\n');
+                    let trimmed = result.trim_end().len();
+                    result.truncate(trimmed);
+                    if !line.wrapped {
+                        result.push('\n');
+                    }
                 }
             }
         }
+
+        let trimmed = result.trim_end().len();
+        result.truncate(trimmed);
 
         if result.is_empty() {
             None
